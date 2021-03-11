@@ -126,7 +126,7 @@ model.requireSensitivitiesForAllParameters()
 solver.setSensitivityMethod(amici.SensitivityMethod_forward)
 solver.setSensitivityOrder(amici.SensitivityOrder_first)
 
-objective = pypesto.AmiciObjective(model, solver, [edata], 1)
+objective = pypesto.AmiciObjective(model, solver, [edata], 1, list(model.getParameterIds()))
 
 # create optimizer object which contains all information for doing the optimization
 optimizer = optimize.PyswarmsOptimizer()
