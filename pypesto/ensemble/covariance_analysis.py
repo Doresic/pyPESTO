@@ -1,31 +1,56 @@
 import numpy as np
-from typing import Union, Tuple
+from typing import Dict, Tuple, Union
+import warnings
 
 from ..ensemble import Ensemble, EnsemblePrediction
 from .utils import get_prediction_dataset
 
 
-def get_covariance_matrix_parameters(ens: Ensemble) -> np.ndarray:
-    """
-    Compute the covariance of ensemble parameters.
-
-    Parameters
-    ==========
-    ens:
-        Ensemble object containing a set of parameter vectors
-
-    Returns
-    =======
-    covariance_matrix:
-        covariance matrix of ensemble parameters
-    """
-
-    # call lowlevel routine using the parameter ensemble
-    return np.cov(ens.x_vectors.transpose())
+#def get_covariance_matrix_parameters(ens: 'pypesto.ensemble.Ensemble') -> np.ndarray:
+#    """
+#    Compute the covariance of ensemble parameters.
+#
+#    Parameters
+#    ==========
+#    ens:
+#        Ensemble object containing a set of parameter vectors
+#
+#    Returns
+#    =======
+#    covariance_matrix:
+#        covariance matrix of ensemble parameters
+#    """
+#
+#    # call lowlevel routine using the parameter ensemble
+#    return np.cov(ens.x_vectors.transpose())
+#
+#
+#get_ensemble_covariance = get_covariance_matrix_parameters
+#
+#
+#def get_covariance_eig(cov: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+#    """
+#    Compute the covariance of ensemble parameters.
+#
+#    Parameters
+#    ==========
+#    cov:
+#        The covariance matrix.
+#
+#    Returns
+#    =======
+#    The eigenvalues and eigenvectors, in a output format of `np.linalg.eigh`.
+#    """
+#    return np.linalg.eigh(cov)
+#    #eigenvalues, eigenvectors = np.linalg.eigh(matrix)
+#    #return {
+#    #    'eigenvalues': eigenvalues,
+#    #    'eigenvectors': eigenvectors,
+#    #}
 
 
 def get_covariance_matrix_predictions(
-        ens: Union[Ensemble, EnsemblePrediction],
+        ens: Union['pypesto.ensemble.Ensemble', 'pypesto.ensemble.EnsemblePrediction'],
         prediction_index: int = 0) -> np.ndarray:
     """
     Compute the covariance of ensemble predictions.
@@ -54,7 +79,7 @@ def get_covariance_matrix_predictions(
 
 
 def get_spectral_decomposition_parameters(
-        ens: Ensemble,
+        ens: 'pypesto.ensemble.Ensemble' = None,
         normalize: bool = False,
         only_separable_directions: bool = False,
         cutoff_absolute_separable: float = 1e-16,
@@ -69,7 +94,18 @@ def get_spectral_decomposition_parameters(
     Parameters
     ==========
     ens:
-        Ensemble object containing a set of parameter vectors
+        Ensemble object containing a set of parameter vectors. This can
+        optionally be replaced with a precomputed covariance marix of the
+        parameter vectors, with the `covariance` method parameter.
+
+    covariance:
+        Covariance matrix of ensemble parameters. This is an optional
+        alternative to supplying the ensemble of parameter vectors directly,
+        and can be useful if the time taken to compute the covariance matrix
+        is significant.
+
+    eigh:
+        Eigenvectors and eigenvalues of the `covariance` matrix.
 
     normalize:
         flag indicating whether the returned Eigenvalues should be normalized
@@ -111,13 +147,17 @@ def get_spectral_decomposition_parameters(
         Eigenvectors of the covariance matrix
     """
     # check inputs
-    if sum([only_identifiable_directions, only_separable_directions]) >= 2:
-        raise AssertionError(
-            "Specify either only identifiable or only separable directions.")
+    if only_identifiable_directions and only_separable_directions:
+        raise ValueError(
+            "Specify either only identifiable or only separable directions."
+        )
 
-    covariance = get_covariance_matrix_parameters(ens)
+    #eigenvalues, eigenvectors = ens.get_covariance_eig()
+    #if covariance is None:
+    #    covariance = get_covariance_matrix_parameters(ens)
+
     return get_spectral_decomposition_lowlevel(
-        matrix=covariance, normalize=normalize,
+        ens=ens, normalize=normalize,
         only_separable_directions=only_separable_directions,
         cutoff_absolute_separable=cutoff_absolute_separable,
         cutoff_relative_separable=cutoff_relative_separable,
@@ -127,7 +167,7 @@ def get_spectral_decomposition_parameters(
 
 
 def get_spectral_decomposition_predictions(
-        ens: Ensemble,
+        ens: 'pypesto.ensemble.Ensemble',
         normalize: bool = False,
         only_separable_directions: bool = False,
         cutoff_absolute_separable: float = 1e-16,
@@ -196,7 +236,8 @@ def get_spectral_decomposition_predictions(
 
 
 def get_spectral_decomposition_lowlevel(
-        matrix: np.ndarray,
+        #matrix: np.ndarray,
+        ens: Ensemble,
         normalize: bool = False,
         only_separable_directions: bool = False,
         cutoff_absolute_separable: float = 1e-16,
@@ -255,10 +296,13 @@ def get_spectral_decomposition_lowlevel(
     """
 
     # get the eigenvalue decomposition
-    eigenvalues, eigenvectors = np.linalg.eigh(matrix)
+    #eigenvalues, eigenvectors = np.linalg.eigh(matrix)
+    eigenvalues, eigenvectors = ens.get_covariance_eig()
 
     # get a normalized version
     rel_eigenvalues = eigenvalues / np.max(eigenvalues)
+
+    empty_return = np.empty((0,)), np.empty((0,0))
 
     # If no filtering is wanted, we can return
     if not only_identifiable_directions and not only_separable_directions:
@@ -281,8 +325,15 @@ def get_spectral_decomposition_lowlevel(
         elif cutoff_relative_separable is not None:
             above_cutoff = rel_eigenvalues > cutoff_relative_separable
         else:
-            raise Exception('Need a lower cutoff (absolute or relative, '
-                            'e.g., 1e-16, to compute separable directions.')
+            warnings.warn(
+                'separable failed. '
+                f'Current cutoffs are {cutoff_absolute_separable} (absolute) '
+                f'and {cutoff_relative_separable} (relative).'
+            )
+            return [], []
+            return empty_return
+            #raise Exception('Need a lower cutoff (absolute or relative, '
+            #                'e.g., 1e-16, to compute separable directions.')
 
         # restrict to those above cutoff
         eigenvalues = eigenvalues[above_cutoff]
@@ -306,8 +357,14 @@ def get_spectral_decomposition_lowlevel(
     elif cutoff_relative_identifiable is not None:
         below_cutoff = 1 / rel_eigenvalues > cutoff_relative_identifiable
     else:
-        raise Exception('Need an inverse upper cutoff (absolute or relative, '
-                        'e.g., 1e-16, to compute identifiable directions.')
+        #raise Exception('Need an inverse upper cutoff (absolute or relative, '
+        #                'e.g., 1e-16, to compute identifiable directions.')
+        warnings.warn(
+            'identifiable failed. '
+            f'Current cutoffs are {cutoff_absolute_identifiable} (absolute) '
+            f'and {cutoff_relative_identifiable} (relative).'
+        )
+        return empty_return
 
     # restrict to those below cutoff
     eigenvalues = eigenvalues[below_cutoff]

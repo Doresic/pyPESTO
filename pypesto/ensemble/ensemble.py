@@ -23,6 +23,10 @@ from .constants import (PREDICTOR, PREDICTION_ID, PREDICTION_RESULTS,
                         EnsembleType, ENSEMBLE_TYPE, MEAN, MEDIAN,
                         STANDARD_DEVIATION, SUMMARY, LOWER_BOUND,
                         UPPER_BOUND, get_percentile_label)
+#from .covariance_analysis import (
+#    get_ensemble_covariance,
+#    get_covariance_eig,
+#)
 
 
 class EnsemblePrediction:
@@ -333,6 +337,11 @@ class Ensemble:
         if predictions is not None:
             self.predictions = predictions
 
+        # Store covariance and corresponding eigen(vectors/values) if
+        # computed once, to save time for large ensembles.
+        self.covariance = None
+        self.covariance_eig = None
+
     @staticmethod
     def from_sample(
             result: Result,
@@ -589,3 +598,57 @@ class Ensemble:
             parameter_identifiability['parameterId']
 
         return parameter_identifiability
+
+    def get_covariance(self) -> np.ndarray:
+        if self.covariance is None:
+            self.covariance = get_ensemble_covariance(self)
+        return self.covariance
+
+    def get_covariance_eig(self) -> Tuple[np.ndarray, np.ndarray]:
+        covariance = self.get_covariance()
+        if self.covariance_eig is None:
+            self.covariance_eig = get_covariance_eig(self.covariance)
+        return self.covariance_eig
+
+
+def get_covariance_matrix_parameters(ens: 'pypesto.ensemble.Ensemble') -> np.ndarray:
+    """
+    Compute the covariance of ensemble parameters.
+
+    Parameters
+    ==========
+    ens:
+        Ensemble object containing a set of parameter vectors
+
+    Returns
+    =======
+    covariance_matrix:
+        covariance matrix of ensemble parameters
+    """
+
+    # call lowlevel routine using the parameter ensemble
+    return np.cov(ens.x_vectors.transpose())
+
+
+get_ensemble_covariance = get_covariance_matrix_parameters
+
+
+def get_covariance_eig(cov: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute the covariance of ensemble parameters.
+
+    Parameters
+    ==========
+    cov:
+        The covariance matrix.
+
+    Returns
+    =======
+    The eigenvalues and eigenvectors, in a output format of `np.linalg.eigh`.
+    """
+    return np.linalg.eigh(cov)
+    #eigenvalues, eigenvectors = np.linalg.eigh(matrix)
+    #return {
+    #    'eigenvalues': eigenvalues,
+    #    'eigenvectors': eigenvectors,
+    #}
