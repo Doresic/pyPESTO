@@ -26,9 +26,11 @@ class InnerProblem:
 
     def __init__(self,
                  xs: List[InnerParameter],
-                 data: List[np.ndarray]):
+                 data: List[np.ndarray],
+                 hard_constraints: pd.DataFrame):
         self.xs: Dict[str, InnerParameter] = {x.id: x for x in xs}
         self.data = data
+        self.hard_constraints = hard_constraints
         self._solve_numerically = False
 
         logger.debug(f"Created InnerProblem with ids {self.get_x_ids()}")
@@ -64,6 +66,9 @@ class InnerProblem:
             return self.xs[id]
         raise KeyError(f"Cannot find id {id}.")
 
+    def get_hard_constraints_for_id(self, id: str):
+        if id in self.xs:
+            return self.hard_constraints[self.hard_constraints['observableId']==id]
     def is_empty(self):
         return len(self.xs) == 0
 
@@ -97,6 +102,9 @@ def inner_problem_from_petab_problem(
         petab_problem.parameter_df)
 
     x_ids = [x.id for x in inner_parameters]
+
+    # get hard constrained measurements from measurement.df
+    hard_constraints=get_hard_constraints(petab_problem)
 
     # used indices for all measurement specific parameters
     ixs = ixs_for_measurement_specific_parameters(
@@ -137,7 +145,18 @@ def inner_problem_from_petab_problem(
         if par.id in coupled_pars:
             par.coupled = True
 
-    return InnerProblem(inner_parameters, edatas)
+    return InnerProblem(inner_parameters, edatas, hard_constraints)
+
+def get_hard_constraints(petab_problem: petab.Problem):
+    measurement_df = petab_problem.measurement_df
+    hard_cons_df=pd.DataFrame(columns=['observableId', 'measurement']) #ADD CONDITION HERE?
+    for i in range(len(measurement_df)):
+        if(measurement_df.loc[i, "measurement"][0]=='<' or measurement_df.loc[i, "measurement"][0]=='>'):
+            #print(measurement_df.loc[i, "measurement"])
+            hard_cons_df= hard_cons_df.append({'observableId': measurement_df.loc[i, "observableId"],
+                             'measurement': measurement_df.loc[i, "measurement"]}, ignore_index=True)
+            #print(hard_cons_df, sep='\n')
+    return hard_cons_df
 
 
 def inner_parameters_from_parameter_df(df: pd.DataFrame):
