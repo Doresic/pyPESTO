@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from typing import Dict, List, Tuple
 import warnings
 
@@ -59,7 +60,9 @@ class OptimalScalingInnerSolver(InnerSolver):
         optimal_surrogates = []
         for gr in problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING):
             xs = problem.get_xs_for_group(gr)
-            surrogate_opt_results = optimize_surrogate_data(xs, sim, self.options)
+            last_category = problem.get_last_category_for_group(gr)
+            hard_constraints = problem.get_hard_constraints_for_group(gr)
+            surrogate_opt_results = optimize_surrogate_data(xs, sim, self.options, hard_constraints, last_category)
             optimal_surrogates.append(surrogate_opt_results)
         return optimal_surrogates
 
@@ -100,7 +103,9 @@ class OptimalScalingInnerSolver(InnerSolver):
 
 def optimize_surrogate_data(xs: List[InnerParameter],
                             sim: List[np.ndarray],
-                            options: Dict):
+                            options: Dict,
+                            hard_constraints: pd.DataFrame,
+                            last_category: int):
     """Run optimization for inner problem"""
 
     from scipy.optimize import minimize
@@ -111,7 +116,7 @@ def optimize_surrogate_data(xs: List[InnerParameter],
 
     def obj_surr(x):
         return obj_surrogate_data(xs, x, sim, interval_gap,
-                                  interval_range, w, options)
+                                  interval_range, w, options, hard_constraints, last_category)
 
     inner_options = \
         get_inner_options(options, xs, sim, interval_range, interval_gap)
@@ -297,7 +302,9 @@ def obj_surrogate_data(xs: List[InnerParameter],
                        interval_gap: float,
                        interval_range: float,
                        w: float,
-                       options: Dict) -> float:
+                       options: Dict,
+                       hard_constraints: pd.DataFrame,
+                       last_category: int) -> float:
     """compute optimal scaling objective function"""
 
     obj = 0.0
@@ -308,7 +315,7 @@ def obj_surrogate_data(xs: List[InnerParameter],
     for x in xs:
         x_upper, x_lower = \
             get_bounds_for_category(
-                x, optimal_scaling_bounds, interval_gap, options
+                x, optimal_scaling_bounds, interval_gap, options, hard_constraints, last_category
             )
         for sim_i, mask_i in \
                 zip(sim, x.ixs):
@@ -328,22 +335,46 @@ def obj_surrogate_data(xs: List[InnerParameter],
 def get_bounds_for_category(x: InnerParameter,
                             optimal_scaling_bounds: np.ndarray,
                             interval_gap: float,
-                            options: Dict) -> Tuple[float, float]:
+                            options: Dict,
+                            hard_constraints: pd.DataFrame,
+                            last_category: int) -> Tuple[float, float]:
     """Return upper and lower bound for a specific category x"""
 
     x_category = int(x.category)
+    lower_boundary = -1
+    upper_boundary = -1
+
+    for i in range(len(hard_constraints)):
+        if(hard_constraints.loc[i, "measurement"][0]=='>'):
+            lower_boundary = int(hard_constraints.loc[i, "measurement"][1:])
+        elif(hard_constraints.loc[i, "measurement"][0]=='<'):
+            upper_boundary = int(hard_constraints.loc[i, "measurement"][1:])
 
     if options['method'] == REDUCED:
-        x_upper = optimal_scaling_bounds[x_category - 1]
+        if (x_category == last_category and upper_boundary != -1):
+            x_upper = upper_boundary
+        else:
+            x_upper = optimal_scaling_bounds[x_category - 1]
         if x_category == 1:
-            x_lower = 0
+            if(lower_boundary != -1):
+                x_lower=lower_boundary
+            else:
+                x_lower = 0
         elif x_category > 1:
             x_lower = optimal_scaling_bounds[x_category - 2] + interval_gap
         else:
             raise ValueError('Category value needs to be larger than 0.')
     elif options['method'] == STANDARD:
-        x_lower = optimal_scaling_bounds[2 * x_category - 2]
-        x_upper = optimal_scaling_bounds[2 * x_category - 1]
+        if (x_category == last_category and upper_boundary != -1):
+            x_upper = upper_boundary
+        else:
+            x_upper = optimal_scaling_bounds[x_category - 1]
+        if (x_category == 1 and lower_boundary != -1):
+            x_lower=lower_boundary
+        elif x_category > 1:
+            x_lower = x_lower = optimal_scaling_bounds[2 * x_category - 2]
+        else:
+            raise ValueError('Category value needs to be larger than 0.')
     else:
         raise NotImplementedError(
             f"Unkown optimal scaling method {options['method']}. "

@@ -66,9 +66,15 @@ class InnerProblem:
             return self.xs[id]
         raise KeyError(f"Cannot find id {id}.")
 
-    def get_hard_constraints_for_id(self, id: str):
-        if id in self.xs:
-            return self.hard_constraints[self.hard_constraints['observableId']==id]
+    def get_last_category_for_group(self, gr):
+        last_category=1
+        for x in self.xs.values():
+            if(x.group == gr and x.category > last_category):
+                last_category=x.category
+        return last_category
+
+    def get_hard_constraints_for_group(self, group: int):
+        return self.hard_constraints[self.hard_constraints['observableParameters']==group]
     def is_empty(self):
         return len(self.xs) == 0
 
