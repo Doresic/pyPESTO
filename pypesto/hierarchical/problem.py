@@ -26,9 +26,11 @@ class InnerProblem:
 
     def __init__(self,
                  xs: List[InnerParameter],
-                 data: List[np.ndarray]):
+                 data: List[np.ndarray],
+                 hard_constraints: pd.DataFrame):
         self.xs: Dict[str, InnerParameter] = {x.id: x for x in xs}
         self.data = data
+        self.hard_constraints = hard_constraints
         self._solve_numerically = False
 
         logger.debug(f"Created InnerProblem with ids {self.get_x_ids()}")
@@ -64,6 +66,16 @@ class InnerProblem:
             return self.xs[id]
         raise KeyError(f"Cannot find id {id}.")
 
+    def get_last_category_for_group(self, gr):
+        last_category=1
+        for x in self.xs.values():
+            if(x.group == gr and x.category > last_category):
+                last_category=x.category
+        return last_category
+
+    def get_hard_constraints_for_group(self, group: int):
+        return self.hard_constraints[self.hard_constraints['observableParameters']==group]
+
     def is_empty(self):
         return len(self.xs) == 0
 
@@ -98,6 +110,9 @@ def inner_problem_from_petab_problem(
 
     x_ids = [x.id for x in inner_parameters]
 
+    # get hard constrained measurements from measurement.df
+    hard_constraints=get_hard_constraints(petab_problem)
+
     # used indices for all measurement specific parameters
     ixs = ixs_for_measurement_specific_parameters(
         petab_problem, amici_model, x_ids)
@@ -113,8 +128,18 @@ def inner_problem_from_petab_problem(
     for par in inner_parameters:
         par.ixs = ix_matrices[par.id]
 
-    return InnerProblem(inner_parameters, edatas)
+    return InnerProblem(inner_parameters, edatas, hard_constraints)
 
+def get_hard_constraints(petab_problem: petab.Problem):
+    measurement_df = petab_problem.measurement_df
+    hard_cons_df=pd.DataFrame(columns=['observableId', 'measurement']) #ADD CONDITION HERE?
+    for i in range(len(measurement_df)):
+        if(measurement_df.loc[i, "measurement"][0]=='<' or measurement_df.loc[i, "measurement"][0]=='>'):
+            #print(measurement_df.loc[i, "measurement"])
+            hard_cons_df= hard_cons_df.append({'observableId': measurement_df.loc[i, "observableId"],
+                             'measurement': measurement_df.loc[i, "measurement"]}, ignore_index=True)
+            #print(hard_cons_df, sep='\n')
+    return hard_cons_df
 
 def inner_parameters_from_parameter_df(df: pd.DataFrame):
     """Create list of inner free parameters from PEtab conform parameter df.
@@ -166,38 +191,39 @@ def ixs_for_measurement_specific_parameters(
             measurement_df=df_for_condition)
 
         for time in timepoints:
-            # subselect for time
-            df_for_time = df_for_condition[df_for_condition[TIME] == time]
-            time_ix_0 = timepoints_w_reps.index(time)
+            if(time!=99999):
+                # subselect for time
+                df_for_time = df_for_condition[df_for_condition[TIME] == time]
+                time_ix_0 = timepoints_w_reps.index(time)
 
-            # remember used time indices for each observable
-            time_ix_for_obs_ix = {}
+                # remember used time indices for each observable
+                time_ix_for_obs_ix = {}
 
-            # iterate over measurements
-            for _, measurement in df_for_time.iterrows():
-                # extract observable index
-                observable_ix = observable_ids.index(
-                    measurement[OBSERVABLE_ID])
+                # iterate over measurements
+                for _, measurement in df_for_time.iterrows():
+                    # extract observable index
+                    observable_ix = observable_ids.index(
+                        measurement[OBSERVABLE_ID])
 
-                # update time index for observable
-                if observable_ix in time_ix_for_obs_ix:
-                    time_ix_for_obs_ix[observable_ix] += 1
-                else:
-                    time_ix_for_obs_ix[observable_ix] = time_ix_0
-                time_ix = time_ix_for_obs_ix[observable_ix]
+                    # update time index for observable
+                    if observable_ix in time_ix_for_obs_ix:
+                        time_ix_for_obs_ix[observable_ix] += 1
+                    else:
+                        time_ix_for_obs_ix[observable_ix] = time_ix_0
+                    time_ix = time_ix_for_obs_ix[observable_ix]
 
-                observable_overrides = \
-                    petab.split_parameter_replacement_list(
-                        measurement[OBSERVABLE_PARAMETERS])
-                noise_overrides = \
-                    petab.split_parameter_replacement_list(
-                        measurement[NOISE_PARAMETERS])
+                    observable_overrides = \
+                        petab.split_parameter_replacement_list(
+                            measurement[OBSERVABLE_PARAMETERS])
+                    noise_overrides = \
+                        petab.split_parameter_replacement_list(
+                            measurement[NOISE_PARAMETERS])
 
-                # try to insert if hierarchical parameter
-                for override in observable_overrides + noise_overrides:
-                    if override in x_ids:
-                        ixs_for_par.setdefault(override, []).append(
-                            (condition_ix, time_ix, observable_ix))
+                    # try to insert if hierarchical parameter
+                    for override in observable_overrides + noise_overrides:
+                        if override in x_ids:
+                            ixs_for_par.setdefault(override, []).append(
+                                (condition_ix, time_ix, observable_ix))
     return ixs_for_par
 
 
@@ -236,12 +262,13 @@ def _get_timepoints_with_replicates(
     # find replicate numbers of time points
     timepoints_w_reps = []
     for time in timepoints:
-        # subselect for time
-        df_for_time = measurement_df[measurement_df.time == time]
-        # rep number is maximum over rep numbers for observables
-        n_reps = max(df_for_time.groupby(
-            [OBSERVABLE_ID, TIME]).size())
-        # append time point n_rep times
-        timepoints_w_reps.extend([time] * n_reps)
+        if(time!=99999):
+            # subselect for time
+            df_for_time = measurement_df[measurement_df.time == time]
+            # rep number is maximum over rep numbers for observables
+            n_reps = max(df_for_time.groupby(
+                [OBSERVABLE_ID, TIME]).size())
+            # append time point n_rep times
+            timepoints_w_reps.extend([time] * n_reps)
 
     return timepoints_w_reps
