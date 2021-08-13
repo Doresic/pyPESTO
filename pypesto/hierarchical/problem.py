@@ -74,7 +74,7 @@ class InnerProblem:
         return last_category
 
     def get_hard_constraints_for_group(self, group: int):
-        return self.hard_constraints[self.hard_constraints['observableParameters']==group]
+        return self.hard_constraints[self.hard_constraints['group']==str(group)]
 
     def is_empty(self):
         return len(self.xs) == 0
@@ -132,12 +132,13 @@ def inner_problem_from_petab_problem(
 
 def get_hard_constraints(petab_problem: petab.Problem):
     measurement_df = petab_problem.measurement_df
-    hard_cons_df=pd.DataFrame(columns=['observableId', 'measurement']) #ADD CONDITION HERE?
+    hard_cons_df=pd.DataFrame(columns=['observableId', 'measurement', 'group']) #ADD CONDITION HERE?
     for i in range(len(measurement_df)):
         if(measurement_df.loc[i, "measurement"][0]=='<' or measurement_df.loc[i, "measurement"][0]=='>'):
             #print(measurement_df.loc[i, "measurement"])
             hard_cons_df= hard_cons_df.append({'observableId': measurement_df.loc[i, "observableId"],
-                             'measurement': measurement_df.loc[i, "measurement"]}, ignore_index=True)
+                             'measurement': measurement_df.loc[i, "measurement"],
+                             'group' : measurement_df.loc[i, "observableParameters"]}, ignore_index=True)
             #print(hard_cons_df, sep='\n')
     return hard_cons_df
 
