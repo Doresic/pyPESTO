@@ -53,16 +53,18 @@ def get_optimizer(optimizer_name):
 def main():
     """Napisi opis..."""
 
+    petab_problem = petab.Problem.from_yaml(
+    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
+
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_HardConstraints/Boehm_JProteomeRes2014OptimalScaling_HardConstraints.yaml')
 
-    petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
     petab.flatten_timepoint_specific_output_overrides(petab_problem)
 
     importer = pypesto.petab.PetabImporter(petab_problem)
-    model=importer.create_model()
 
     optimizer = get_optimizer('SLSQP')
     print("tu sam")
