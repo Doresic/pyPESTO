@@ -18,7 +18,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
     """Run optimization"""
     pypesto.logging.log_to_console(logging.INFO)
     print("tu sam")
-    objective = importer.create_objective(force_compile=True, guess_steadystate=False)
+    objective = importer.create_objective(qualitative=True, force_compile=True, guess_steadystate=False)
     print("tu sam2")
     problem = importer.create_problem(objective, force_compile=True)
 
