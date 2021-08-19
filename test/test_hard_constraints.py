@@ -1,5 +1,5 @@
-import pdb
-pdb.set_trace()
+#import pdb
+#pdb.set_trace()
 import pypesto
 import pypesto.logging
 import pypesto.petab
@@ -10,6 +10,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+import faulthandler
+faulthandler.enable()
 
 from pypesto.hierarchical.optimal_scaling_solver import OptimalScalingInnerSolver
 from pypesto.hierarchical.problem import InnerProblem
@@ -26,10 +28,10 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
 
     engine = pypesto.engine.SingleCoreEngine()
 
-    # do the optimization
-    result = pypesto.optimize.minimize(problem=problem, optimizer=optimizer,
-                          n_starts=10, engine=engine)
-"""
+  #  # do the optimization
+  #  result = pypesto.optimize.minimize(problem=problem, optimizer=optimizer,
+  #                        n_starts=10, engine=engine)
+
     problem.objective.calculator.inner_solver = OptimalScalingInnerSolver(options={'method': 'standard',
                                                                                    'reparameterized': False,
                                                                                    'intervalConstraints': 'max',
@@ -44,7 +46,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
                                        options=option,
                                        history_options=history_options)
     return result
-"""
+
 def get_optimizer(optimizer_name):
     """Return pyPESTO optimizer"""
     opt_all = {'L-BFGS-B': pypesto.optimize.ScipyOptimizer(method='L-BFGS-B',
@@ -63,11 +65,11 @@ def main():
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
 
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_HardConstraints/Boehm_JProteomeRes2014OptimalScaling_HardConstraints.yaml')
-
     petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
+    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_HardConstraints/Boehm_JProteomeRes2014OptimalScaling_HardConstraints.yaml')
+
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
     petab.flatten_timepoint_specific_output_overrides(petab_problem)
 
@@ -75,7 +77,7 @@ def main():
 
     optimizer = get_optimizer('SLSQP')
     print("tu sam")
-    run_optimization(importer, optimizer, history_name= 'povijest', num_starts=1, min_gap=1e-16)
+    run_optimization(importer, optimizer, history_name= 'povijest.csv', num_starts=1, min_gap=1e-16)
 
 if __name__ == "__main__":
     main()

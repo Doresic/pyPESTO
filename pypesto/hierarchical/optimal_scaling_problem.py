@@ -197,6 +197,8 @@ def qualitative_inner_problem_from_petab_problem(
     # get hard constrained measurements from measurement.df
     hard_constraints=get_hard_constraints(petab_problem)
 
+    print("Evo hard cons: \n", hard_constraints)
+
     # used indices for all measurement specific parameters
     ixs = ixs_for_measurement_specific_parameters(
         petab_problem, amici_model, x_ids)
@@ -218,7 +220,7 @@ def get_hard_constraints(petab_problem: petab.Problem):
     measurement_df = petab_problem.measurement_df
     hard_cons_df=pd.DataFrame(columns=['observableId', 'measurement', 'group']) #ADD CONDITION HERE?
     for i in range(len(measurement_df)):
-        if(measurement_df.loc[i, "measurement"][0]=='<' or measurement_df.loc[i, "measurement"][0]=='>'):
+        if(str(measurement_df.loc[i, "measurement"])[0]=='<' or str(measurement_df.loc[i, "measurement"])[0]=='>'):
             #print(measurement_df.loc[i, "measurement"])
             hard_cons_df= hard_cons_df.append({'observableId': measurement_df.loc[i, "observableId"],
                              'measurement': measurement_df.loc[i, "measurement"],

@@ -113,7 +113,7 @@ def inner_problem_from_petab_problem(
     for par in inner_parameters:
         par.ixs = ix_matrices[par.id]
 
-    return InnerProblem(inner_parameters, edatas, hard_constraints)
+    return InnerProblem(inner_parameters, edatas)
 
 
 def inner_parameters_from_parameter_df(df: pd.DataFrame):
