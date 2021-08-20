@@ -161,6 +161,8 @@ def ixs_for_measurement_specific_parameters(
         df_for_condition = petab.get_rows_for_condition(
             measurement_df=petab_problem.measurement_df, condition=condition)
 
+      #  df_for_condition = df_for_condition[df_for_condition['time']!='HardConstraint']
+      #  print(df_for_condition)
         timepoints = sorted(df_for_condition[TIME].unique().astype(float))
         timepoints_w_reps = _get_timepoints_with_replicates(
             measurement_df=df_for_condition)
@@ -231,9 +233,10 @@ def _get_timepoints_with_replicates(
         Sorted list of timepoints, including multiple timepoints accounting
         for replicate measurements.
     """
+    #ZEBO ignore hard constraints from measurement.df
+   # measurement_df = measurement_df[measurement_df['time']!='HardConstraint']
     # create sorted list of all timepoints for which measurements exist
     timepoints = sorted(measurement_df[TIME].unique().astype(float))
-
     # find replicate numbers of time points
     timepoints_w_reps = []
     for time in timepoints:
