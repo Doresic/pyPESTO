@@ -14,8 +14,10 @@ from .problem import (inner_parameters_from_parameter_df,
 class OptimalScalingProblem(InnerProblem):
     def __init__(self,
                  xs: List[InnerParameter],
-                 data: List[np.ndarray]):
+                 data: List[np.ndarray],
+                 hard_constraints: pd.DataFrame):
         super().__init__(xs, data)
+        self.hard_constraints = hard_constraints
         self.groups = {}
 
         for idx, gr in enumerate(self.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
@@ -23,11 +25,10 @@ class OptimalScalingProblem(InnerProblem):
             xs = self.get_xs_for_group(gr)
             self.groups[gr]['num_categories'] = len(xs)
             self.groups[gr]['num_datapoints'] = np.sum([np.sum([np.sum(ixs) for ixs in x.ixs]) for x in xs])
-            print(gr, self.groups[gr]['num_datapoints'])
 
             self.groups[gr]['num_inner_params'] = self.groups[gr]['num_datapoints'] + \
                                                   2 * self.groups[gr]['num_categories']
-            print(gr, self.groups[gr]['num_inner_params'], self.groups[gr]['num_categories'])
+
             self.groups[gr]['num_constr_full'] = 2 * self.groups[gr]['num_datapoints'] + \
                                                  2 * self.groups[gr]['num_categories']  # - 1
 
@@ -178,8 +179,8 @@ class OptimalScalingProblem(InnerProblem):
                 last_category=x.category
         return last_category
 
-#    def get_hard_constraints_for_group(self, group: float):
-#        return self.hard_constraints[self.hard_constraints['group'].astype(float)==group]
+    def get_hard_constraints_for_group(self, group: float):
+        return self.hard_constraints[self.hard_constraints['group'].astype(float)==group]
 
 
 
@@ -188,12 +189,9 @@ def qualitative_inner_problem_from_petab_problem(
         amici_model: 'amici.Model',
         edatas: List['amici.ExpData']):
     # get hard constrained measurements from measurement.df
-#    hard_constraints=get_hard_constraints(petab_problem)
+    hard_constraints=get_hard_constraints(petab_problem)
 
-#    print("Evo hard cons: \n", hard_constraints)
-#    if('IsHardConstraint' in petab_problem.measurement_df): 
-#        petab_problem.measurement_df = petab_problem.measurement_df[petab_problem.measurement_df['IsHardConstraint']==False]
-#        petab_problem.measurement_df['time'] = pd.to_numeric(petab_problem.measurement_df['time'])
+    print("Evo hard cons: \n", hard_constraints)
     # inner parameters
     inner_parameters = inner_parameters_from_parameter_df(
         petab_problem.parameter_df)
@@ -215,17 +213,24 @@ def qualitative_inner_problem_from_petab_problem(
     for par in inner_parameters:
         par.ixs = ix_matrices[par.id]
 
-    return OptimalScalingProblem(inner_parameters, edatas)
+    return OptimalScalingProblem(inner_parameters, edatas, hard_constraints)
 
-#def get_hard_constraints(petab_problem: petab.Problem):
-#    measurement_df = petab_problem.measurement_df
-#    hard_cons_df=pd.DataFrame(columns=['observableId', 'measurement', 'group']) #ADD CONDITION HERE?
-#    if('IsHardConstraint' in measurement_df):
-#        for i in range(len(measurement_df)):
-#            if(measurement_df.loc[i, "IsHardConstraint"]==True):
-#                #print(measurement_df.loc[i, "measurement"])
-#                hard_cons_df= hard_cons_df.append({'observableId': measurement_df.loc[i, "observableId"],
-#                                'measurement': measurement_df.loc[i, "measurement"],
-#                                'group' : measurement_df.loc[i, "observableParameters"]}, ignore_index=True)
-#                #print(hard_cons_df, sep='\n')
-#    return hard_cons_df
+def get_hard_constraints(petab_problem: petab.Problem):
+    measurement_df = petab_problem.measurement_df
+    parameter_df = petab_problem.parameter_df
+    hard_cons_df=pd.DataFrame(columns=['observableId', 'measurement', 'group', 'category', 'seen']) #ADD CONDITION HERE?
+    if('IsHardConstraint' in measurement_df):
+        for i in range(len(measurement_df)):
+            if(measurement_df.loc[i, "IsHardConstraint"]==True):
+                group=float(parameter_df[parameter_df['parameterName']==measurement_df.loc[i, "observableParameters"]]['parameterGroup'])
+                category=float(parameter_df[parameter_df['parameterName']==measurement_df.loc[i, "observableParameters"]]['parameterCategory'])
+                #print(group)
+                seen=str(group) + '&' + str(category)
+                if(seen not in hard_cons_df['seen'].values):
+                    hard_cons_df= hard_cons_df.append({'observableId': measurement_df.loc[i, "observableId"],
+                                    'measurement': measurement_df.loc[i, "measurement"],
+                                    'group' : group,
+                                    'category': category,
+                                    'seen': str(group) + '&' + str(category)}, ignore_index=True)
+                #print(hard_cons_df, sep='\n')
+    return hard_cons_df

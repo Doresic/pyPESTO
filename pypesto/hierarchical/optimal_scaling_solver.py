@@ -63,8 +63,17 @@ class OptimalScalingInnerSolver(InnerSolver):
         optimal_surrogates = []
         #print("EVO SIM:", sim)
         for gr in problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING):
-            #print("Running for group: ", gr)
             xs = problem.get_xs_for_group(gr)
+            if (gr in problem.hard_constraints.group.values):
+                #print(gr, "Tu sam")
+                hard_constraints = problem.get_hard_constraints_for_group(gr)
+                #print(hard_constraints)
+                obj = calculate_obj_fun_for_hard_constraints(xs, sim, self.options, hard_constraints)
+                #fake optimization results
+                surrogate_opt_results_from_hard_constraints = {'success' : True, 'fun' : obj}
+                optimal_surrogates.append(surrogate_opt_results_from_hard_constraints)
+                continue
+            #print("Running for group: ", gr)
             surrogate_opt_results = optimize_surrogate_data(xs, sim, self.options)
             optimal_surrogates.append(surrogate_opt_results)
         return optimal_surrogates
@@ -104,9 +113,9 @@ class OptimalScalingInnerSolver(InnerSolver):
                             ):
         #breakpoint()
         condition_map_sim_var = parameter_mapping[0].map_sim_var
-        print(condition_map_sim_var)
+        #print(condition_map_sim_var)
         par_sim_ids = list(amici_model.getParameterIds())
-        print(par_sim_ids)
+        #print(par_sim_ids)
         # TODO: Doesn't work with condition specific parameters
         for par_sim, par_opt in condition_map_sim_var.items():
             if not isinstance(par_opt, str):
@@ -116,20 +125,42 @@ class OptimalScalingInnerSolver(InnerSolver):
             par_sim_idx = par_sim_ids.index(par_sim)
             par_opt_idx = par_opt_ids.index(par_opt)
             grad = 0.0
-            print(par_sim, par_opt)
+            #print(par_sim, par_opt)
             for idx, gr in enumerate(problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
+                if (gr in problem.hard_constraints.group.values): #group of hard constraint measurements
+                    hard_constraints = problem.get_hard_constraints_for_group(gr)
+                    xi = get_xi_for_hard_constraints(gr, problem, hard_constraints, sim, self.options)
+                    sim_all = get_sim_all(problem.get_xs_for_group(gr), sim)
+                    sy_all = get_sy_all(problem.get_xs_for_group(gr), sy, par_sim_idx)
+                    #print(sim_all)
+                    #print(sy_all)
+
+                    problem.groups[gr]['W'] = problem.get_w(gr, sim_all)
+                    problem.groups[gr]['Wdot'] = problem.get_wdot(gr, sim_all, sy_all)
+
+                    res = np.block([xi[:problem.groups[gr]['num_datapoints']] - sim_all,
+                                    np.zeros(problem.groups[gr]['num_inner_params'] - problem.groups[gr]['num_datapoints'])])
+                    #print(res)
+
+                    dy_dtheta = get_dy_dtheta(gr, problem, sy_all)
+
+                    df_dtheta = res.dot(res.dot(problem.groups[gr]['Wdot']) - 2*problem.groups[gr]['W'].dot(dy_dtheta)) # -2 * problem.W.dot(dy_dtheta).dot(res)
+
+                    grad += df_dtheta
+                    continue
+
                 xi = get_xi(gr, problem, x_inner_opt[idx], sim, self.options)
                 sim_all = get_sim_all(problem.get_xs_for_group(gr), sim)
                 sy_all = get_sy_all(problem.get_xs_for_group(gr), sy, par_sim_idx)
-                print(sim_all)
-                print(sy_all)
+                #print(sim_all)
+                #print(sy_all)
 
                 problem.groups[gr]['W'] = problem.get_w(gr, sim_all)
                 problem.groups[gr]['Wdot'] = problem.get_wdot(gr, sim_all, sy_all)
 
                 res = np.block([xi[:problem.groups[gr]['num_datapoints']] - sim_all,
                                 np.zeros(problem.groups[gr]['num_inner_params'] - problem.groups[gr]['num_datapoints'])])
-                print(res)
+                #print(res)
                 df_dxi = 2 * problem.groups[gr]['W'].dot(res)
 
                 dy_dtheta = get_dy_dtheta(gr, problem, sy_all)
@@ -379,10 +410,10 @@ def get_weight_for_surrogate(xs: List[InnerParameter],
 
     sim_x_all = get_sim_all(xs, sim)
     eps = 1e-8
-    v_net = 0
-    for idx in range(len(sim_x_all) - 1):
-        v_net += np.abs(sim_x_all[idx + 1] - sim_x_all[idx])
-    w = 0.5 * np.sum(np.abs(sim_x_all)) + v_net + eps
+   # v_net = 0
+   # for idx in range(len(sim_x_all) - 1):
+   #     v_net += np.abs(sim_x_all[idx + 1] - sim_x_all[idx])
+   # w = 0.5 * np.sum(np.abs(sim_x_all)) + v_net + eps
     # print(w ** 2)
     return np.sum(np.abs(sim_x_all)) + eps  # TODO: w ** 2
 
@@ -569,3 +600,118 @@ def get_constraints_for_optimization(xs: List[InnerParameter],
     ineq_cons = {'type': 'ineq', 'fun': lambda x: a.dot(x) - b}
 
     return ineq_cons
+
+def calculate_obj_fun_for_hard_constraints(xs: List[InnerParameter],
+                                           sim: List[np.ndarray],
+                                           options: Dict,
+                                           hard_constraints: pd.DataFrame):
+
+    interval_range, interval_gap = \
+        compute_interval_constraints(xs, sim, options)
+    w = get_weight_for_surrogate(xs, sim)
+
+    obj = 0.0
+
+    parameter_length = len(xs)
+    min_all, max_all = get_min_max(xs, sim)
+    max_upper = max_all + (interval_range + interval_gap)*parameter_length
+
+    for x in xs:
+        x_upper, x_lower = \
+            get_bounds_from_hard_constraints(
+                x, hard_constraints, max_upper, interval_gap
+            )
+        for sim_i, mask_i in \
+                zip(sim, x.ixs):
+            #if mask_i.any():
+                y_sim = sim_i[mask_i]
+                for y_sim_i in y_sim:
+                    if x_lower > y_sim_i:
+                        y_surrogate = x_lower
+                    elif y_sim_i > x_upper:
+                        y_surrogate = x_upper
+                    elif x_lower <= y_sim_i <= x_upper:
+                        y_surrogate = y_sim_i
+                    else:
+                        continue
+                    obj += (y_surrogate - y_sim_i) ** 2
+    obj = np.divide(obj, w)
+    return obj
+
+def get_bounds_from_hard_constraints(x: InnerParameter,
+                                    hard_constraints: pd.DataFrame,
+                                    max_upper: float,
+                                    interval_gap: float) -> Tuple[float, float]:
+    x_category = int(x.category)
+    
+    constraint = hard_constraints[hard_constraints['category']==x_category]
+    lower_constraint=-1
+    upper_constraint=-1
+    measurement = constraint['measurement'].values[0]
+    measurement = measurement.replace(" ", "")
+    
+    if('<' in measurement and '>' in measurement):
+        lower_constraint = float(measurement.split(',')[0][1:])
+        upper_constraint = float(measurement.split(',')[1][1:])
+    elif('<' in measurement):
+        upper_constraint = float(measurement[1:])
+    elif('>' in measurement):
+        lower_constraint = float(measurement[1:])
+    #print("bounds point", x_category, measurement, lower_constraint, upper_constraint)
+    if(upper_constraint == -1):
+        x_upper = max_upper
+    else:
+        x_upper = upper_constraint
+    
+    if(lower_constraint!=-1 ):
+        #print("lower constraint in action")
+        x_lower=lower_constraint + interval_gap
+    elif(x_category == 1):
+        #print("no lower constraint")
+        x_lower = 0 
+
+    return x_upper, x_lower
+
+def get_xi_for_hard_constraints(gr,
+                                problem: OptimalScalingProblem,
+                                hard_constraints: pd.DataFrame,
+                                sim: List[np.ndarray],
+                                options: Dict):
+    xs = problem.get_xs_for_group(gr)
+    interval_range, interval_gap = \
+        compute_interval_constraints(xs, sim, options)
+
+    parameter_length = len(xs)
+    min_all, max_all = get_min_max(xs, sim)
+    max_upper = max_all + (interval_range + interval_gap)*parameter_length
+
+    xi = np.zeros(problem.groups[gr]['num_inner_params'])
+    surrogate_all = []
+    x_lower_all = []
+    x_upper_all = []
+    for x in xs:
+        x_upper, x_lower = \
+            get_bounds_from_hard_constraints(
+                x, hard_constraints, max_upper, interval_gap
+            )
+        for sim_i, mask_i in \
+                zip(sim, x.ixs):
+            #if mask_i.any():
+                y_sim = sim_i[mask_i]
+                for y_sim_i in y_sim:
+                    if x_lower > y_sim_i:
+                        y_surrogate = x_lower
+                    elif y_sim_i > x_upper:
+                        y_surrogate = x_upper
+                    elif x_lower <= y_sim_i <= x_upper:
+                        y_surrogate = y_sim_i
+                    else:
+                        continue
+                    surrogate_all.append(y_surrogate)
+        x_lower_all.append(x_lower)
+        x_upper_all.append(x_upper)
+    
+    xi[:problem.groups[gr]['num_datapoints']] = np.array(surrogate_all).flatten()
+    xi[problem.groups[gr]['lb_indices']] = np.array(x_lower_all)
+    xi[problem.groups[gr]['ub_indices']] = np.array(x_upper_all)
+    return xi
