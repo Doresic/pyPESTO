@@ -1,3 +1,4 @@
+from math import e
 import warnings
 from typing import Dict, List, Tuple
 
@@ -60,11 +61,11 @@ class OptimalScalingInnerSolver(InnerSolver):
             ...
         """
         optimal_surrogates = []
+        #print("EVO SIM:", sim)
         for gr in problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING):
+            #print("Running for group: ", gr)
             xs = problem.get_xs_for_group(gr)
-            last_category = problem.get_last_category_for_group(gr)
-            hard_constraints = problem.get_hard_constraints_for_group(gr)
-            surrogate_opt_results = optimize_surrogate_data(xs, sim, self.options, hard_constraints, last_category)
+            surrogate_opt_results = optimize_surrogate_data(xs, sim, self.options)
             optimal_surrogates.append(surrogate_opt_results)
         return optimal_surrogates
 
@@ -88,6 +89,7 @@ class OptimalScalingInnerSolver(InnerSolver):
                 [x_inner_opt[idx]['fun'] for idx in range(len(x_inner_opt))]
             )
         # print(obj)
+        #print("I calculated the obj function with optimized inner pars")
         return obj
 
     def calculate_gradients(self,
@@ -98,10 +100,13 @@ class OptimalScalingInnerSolver(InnerSolver):
                             parameter_mapping,
                             par_opt_ids,
                             amici_model,
-                            snllh
+                            snllh,
                             ):
+        #breakpoint()
         condition_map_sim_var = parameter_mapping[0].map_sim_var
+        print(condition_map_sim_var)
         par_sim_ids = list(amici_model.getParameterIds())
+        print(par_sim_ids)
         # TODO: Doesn't work with condition specific parameters
         for par_sim, par_opt in condition_map_sim_var.items():
             if not isinstance(par_opt, str):
@@ -111,17 +116,20 @@ class OptimalScalingInnerSolver(InnerSolver):
             par_sim_idx = par_sim_ids.index(par_sim)
             par_opt_idx = par_opt_ids.index(par_opt)
             grad = 0.0
+            print(par_sim, par_opt)
             for idx, gr in enumerate(problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
                 xi = get_xi(gr, problem, x_inner_opt[idx], sim, self.options)
                 sim_all = get_sim_all(problem.get_xs_for_group(gr), sim)
                 sy_all = get_sy_all(problem.get_xs_for_group(gr), sy, par_sim_idx)
+                print(sim_all)
+                print(sy_all)
 
                 problem.groups[gr]['W'] = problem.get_w(gr, sim_all)
                 problem.groups[gr]['Wdot'] = problem.get_wdot(gr, sim_all, sy_all)
 
                 res = np.block([xi[:problem.groups[gr]['num_datapoints']] - sim_all,
                                 np.zeros(problem.groups[gr]['num_inner_params'] - problem.groups[gr]['num_datapoints'])])
-
+                print(res)
                 df_dxi = 2 * problem.groups[gr]['W'].dot(res)
 
                 dy_dtheta = get_dy_dtheta(gr, problem, sy_all)
@@ -137,6 +145,7 @@ class OptimalScalingInnerSolver(InnerSolver):
 
                 grad += dxi_dtheta.dot(df_dxi) + df_dtheta
             snllh[par_opt_idx] = grad
+        #print("I calculated the grad with optimized inner pars")
         return snllh
 
     @staticmethod
@@ -218,9 +227,7 @@ def get_xi(gr,
 
 def optimize_surrogate_data(xs: List[InnerParameter],
                             sim: List[np.ndarray],
-                            options: Dict,
-                            hard_constraints: pd.DataFrame,
-                            last_category: int):
+                            options: Dict):
     """Run optimization for inner problem"""
 
     from scipy.optimize import minimize
@@ -231,7 +238,7 @@ def optimize_surrogate_data(xs: List[InnerParameter],
 
     def obj_surr(x):
         return obj_surrogate_data(xs, x, sim, interval_gap,
-                                  interval_range, w, options, hard_constraints, last_category)
+                                  interval_range, w, options)
 
     inner_options = \
         get_inner_options(options, xs, sim, interval_range, interval_gap)
@@ -255,6 +262,7 @@ def get_inner_options(options: Dict,
     from scipy.optimize import Bounds
 
     min_all, max_all = get_min_max(xs, sim)
+   # print("Evo max", max_all)
     if options['method'] == REDUCED:
         parameter_length = len(xs)
         x0 = np.linspace(
@@ -262,6 +270,8 @@ def get_inner_options(options: Dict,
             max_all + (interval_range + interval_gap)*parameter_length,
             parameter_length
         )
+        #print("Min", min_all, "i max", max_all)
+        #print("Evo i x0", x0)
     elif options['method'] == STANDARD:
         parameter_length = 2 * len(xs)
         x0 = np.linspace(0, max_all + interval_range, parameter_length)
@@ -275,7 +285,6 @@ def get_inner_options(options: Dict,
     if options['reparameterized']:
         x0 = y2xi(x0, xs, interval_gap, interval_range)
         bounds = Bounds([0.0] * parameter_length, [max_all + (interval_range + interval_gap)*parameter_length] * parameter_length)
-
         inner_options = {'x0': x0, 'method': 'L-BFGS-B',
                          'options': {'maxiter': 2000, 'ftol': 1e-10},
                          'bounds': bounds}
@@ -283,7 +292,7 @@ def get_inner_options(options: Dict,
         constraints = get_constraints_for_optimization(xs, sim, options)
 
         inner_options = {'x0': x0, 'method': 'SLSQP',
-                         'options': {'maxiter': 2000, 'ftol': 1e-10},
+                         'options': {'maxiter': 2000, 'ftol': 1e-10, 'disp': True},
                          'constraints': constraints}
     return inner_options
 
@@ -323,6 +332,7 @@ def get_sim_all(xs, sim: List[np.ndarray]) -> list:
             #if mask_i.any():
             for sim_x_i in sim_x:
                sim_all.append(sim_x_i)
+    #print("Evo sim all: ", sim_all)
     return sim_all
 
 
@@ -343,6 +353,7 @@ def get_surrogate_all(xs,
             get_bounds_for_category(
                 x, optimal_scaling_bounds, interval_gap, options
             )
+        #print("Upper:", x_upper, "\n lower:", x_lower)
         for sim_i, mask_i in \
                 zip(sim, x.ixs):
             #if mask_i.any():
@@ -471,9 +482,7 @@ def obj_surrogate_data(xs: List[InnerParameter],
                        interval_gap: float,
                        interval_range: float,
                        w: float,
-                       options: Dict,
-                       hard_constraints: pd.DataFrame,
-                       last_category: int) -> float:
+                       options: Dict) -> float:
     """compute optimal scaling objective function"""
 
     obj = 0.0
@@ -484,7 +493,7 @@ def obj_surrogate_data(xs: List[InnerParameter],
     for x in xs:
         x_upper, x_lower = \
             get_bounds_for_category(
-                x, optimal_scaling_bounds, interval_gap, options, hard_constraints, last_category
+                x, optimal_scaling_bounds, interval_gap, options
             )
         for sim_i, mask_i in \
                 zip(sim, x.ixs):
@@ -501,53 +510,29 @@ def obj_surrogate_data(xs: List[InnerParameter],
                         continue
                     obj += (y_surrogate - y_sim_i) ** 2
     obj = np.divide(obj, w)
+   # print("Evo objective:", obj)
     return obj
 
 
 def get_bounds_for_category(x: InnerParameter,
                             optimal_scaling_bounds: np.ndarray,
                             interval_gap: float,
-                            options: Dict,
-                            hard_constraints: pd.DataFrame,
-                            last_category: int) -> Tuple[float, float]:
+                            options: Dict) -> Tuple[float, float]:
     """Return upper and lower bound for a specific category x"""
 
     x_category = int(x.category)
-    lower_boundary = -1
-    upper_boundary = -1
 
-    for i in range(len(hard_constraints)):
-        if(hard_constraints.loc[i, "measurement"][0]=='>'):
-            lower_boundary = int(hard_constraints.loc[i, "measurement"][1:])
-        elif(hard_constraints.loc[i, "measurement"][0]=='<'):
-            upper_boundary = int(hard_constraints.loc[i, "measurement"][1:])
-    
     if options['method'] == REDUCED:
-        if (x_category == last_category and upper_boundary != -1):
-            x_upper = upper_boundary
-        else:
-            x_upper = optimal_scaling_bounds[x_category - 1]
-        
+        x_upper = optimal_scaling_bounds[x_category - 1]
         if x_category == 1:
-            if(lower_boundary != -1):
-                x_lower=lower_boundary
-            else:
-                x_lower = 0
+            x_lower = 0
         elif x_category > 1:
             x_lower = optimal_scaling_bounds[x_category - 2] + interval_gap
         else:
             raise ValueError('Category value needs to be larger than 0.')
     elif options['method'] == STANDARD:
-        if (x_category == last_category and upper_boundary != -1):
-            x_upper = upper_boundary
-        else:
-            x_upper = optimal_scaling_bounds[x_category - 1]
-        if (x_category == 1 and lower_boundary != -1):
-            x_lower=lower_boundary
-        elif x_category > 1:
-            x_lower = x_lower = optimal_scaling_bounds[2 * x_category - 2]
-        else:
-            raise ValueError('Category value needs to be larger than 0.')
+        x_lower = optimal_scaling_bounds[2 * x_category - 2]
+        x_upper = optimal_scaling_bounds[2 * x_category - 1]
     else:
         raise NotImplementedError(
             f"Unkown optimal scaling method {options['method']}. "

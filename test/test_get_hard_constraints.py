@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from pypesto.hierarchical.problem import InnerProblem
+from pypesto.hierarchical.optimal_scaling_problem import OptimalScalingProblem
 
 def main():
     """Napisi opis..."""
@@ -29,9 +30,9 @@ def main():
 
     lol=pd.DataFrame()
 
-    prob = InnerProblem([], [], lol).from_petab_amici(petab_problem, model, edatas_list)
+    prob = OptimalScalingProblem.from_petab_amici(petab_problem, model, edatas_list)
 
-    print(prob.get_hard_constraints_for_group(2))
+    print(prob.get_hard_constraints_for_group(2.0))
 
 if __name__ == "__main__":
     main()

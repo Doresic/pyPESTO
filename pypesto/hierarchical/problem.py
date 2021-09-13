@@ -161,46 +161,43 @@ def ixs_for_measurement_specific_parameters(
         df_for_condition = petab.get_rows_for_condition(
             measurement_df=petab_problem.measurement_df, condition=condition)
 
-      #  df_for_condition = df_for_condition[df_for_condition['time']!='HardConstraint']
-      #  print(df_for_condition)
         timepoints = sorted(df_for_condition[TIME].unique().astype(float))
         timepoints_w_reps = _get_timepoints_with_replicates(
             measurement_df=df_for_condition)
 
         for time in timepoints:
-            if(time!=99999):
-                # subselect for time
-                df_for_time = df_for_condition[df_for_condition[TIME] == time]
-                time_ix_0 = timepoints_w_reps.index(time)
+            # subselect for time
+            df_for_time = df_for_condition[df_for_condition[TIME] == time]
+            time_ix_0 = timepoints_w_reps.index(time)
 
-                # remember used time indices for each observable
-                time_ix_for_obs_ix = {}
+            # remember used time indices for each observable
+            time_ix_for_obs_ix = {}
 
-                # iterate over measurements
-                for _, measurement in df_for_time.iterrows():
-                    # extract observable index
-                    observable_ix = observable_ids.index(
-                        measurement[OBSERVABLE_ID])
+            # iterate over measurements
+            for _, measurement in df_for_time.iterrows():
+                # extract observable index
+                observable_ix = observable_ids.index(
+                    measurement[OBSERVABLE_ID])
 
-                    # update time index for observable
-                    if observable_ix in time_ix_for_obs_ix:
+                # update time index for observable
+                if observable_ix in time_ix_for_obs_ix:
                         time_ix_for_obs_ix[observable_ix] += 1
-                    else:
-                        time_ix_for_obs_ix[observable_ix] = time_ix_0
-                    time_ix = time_ix_for_obs_ix[observable_ix]
+                else:
+                    time_ix_for_obs_ix[observable_ix] = time_ix_0
+                time_ix = time_ix_for_obs_ix[observable_ix]
 
-                    observable_overrides = \
-                        petab.split_parameter_replacement_list(
-                            measurement[OBSERVABLE_PARAMETERS])
-                    noise_overrides = \
-                        petab.split_parameter_replacement_list(
-                            measurement[NOISE_PARAMETERS])
+                observable_overrides = \
+                    petab.split_parameter_replacement_list(
+                        measurement[OBSERVABLE_PARAMETERS])
+                noise_overrides = \
+                    petab.split_parameter_replacement_list(
+                        measurement[NOISE_PARAMETERS])
 
-                    # try to insert if hierarchical parameter
-                    for override in observable_overrides + noise_overrides:
-                        if override in x_ids:
-                            ixs_for_par.setdefault(override, []).append(
-                                (condition_ix, time_ix, observable_ix))
+                # try to insert if hierarchical parameter
+                for override in observable_overrides + noise_overrides:
+                    if override in x_ids:
+                        ixs_for_par.setdefault(override, []).append(
+                            (condition_ix, time_ix, observable_ix))
     return ixs_for_par
 
 
@@ -233,20 +230,18 @@ def _get_timepoints_with_replicates(
         Sorted list of timepoints, including multiple timepoints accounting
         for replicate measurements.
     """
-    #ZEBO ignore hard constraints from measurement.df
-   # measurement_df = measurement_df[measurement_df['time']!='HardConstraint']
+
     # create sorted list of all timepoints for which measurements exist
     timepoints = sorted(measurement_df[TIME].unique().astype(float))
     # find replicate numbers of time points
     timepoints_w_reps = []
     for time in timepoints:
-        if(time!=99999):
-            # subselect for time
-            df_for_time = measurement_df[measurement_df.time == time]
-            # rep number is maximum over rep numbers for observables
-            n_reps = max(df_for_time.groupby(
-                [OBSERVABLE_ID, TIME]).size())
-            # append time point n_rep times
-            timepoints_w_reps.extend([time] * n_reps)
+        # subselect for time
+        df_for_time = measurement_df[measurement_df.time == time]
+        # rep number is maximum over rep numbers for observables
+        n_reps = max(df_for_time.groupby(
+            [OBSERVABLE_ID, TIME]).size())
+        # append time point n_rep times
+        timepoints_w_reps.extend([time] * n_reps)
 
     return timepoints_w_reps

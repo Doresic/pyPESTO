@@ -157,6 +157,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             #    num_threads=min(n_threads, len(edatas)),
             #)
             sy = [rdata['sy'] for rdata in rdatas]
+            print("Evo sy: \n", sy)
             snllh = self.inner_solver.calculate_gradients(self.inner_problem,
                                                           x_inner_opt,
                                                           sim,
@@ -165,6 +166,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
                                                           x_ids,
                                                           amici_model,
                                                           snllh)
+            print("Evo snllh: \n", snllh)
 
         return {FVAL: nllh,
                 GRAD: snllh,
