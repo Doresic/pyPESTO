@@ -665,7 +665,7 @@ def get_bounds_from_hard_constraints(x: InnerParameter,
     
     if(lower_constraint!=-1 ):
         #print("lower constraint in action")
-        x_lower=lower_constraint + interval_gap
+        x_lower=lower_constraint + 1e-6
     elif(x_category == 1):
         #print("no lower constraint")
         x_lower = 0 
@@ -708,6 +708,7 @@ def get_xi_for_hard_constraints(gr,
                     else:
                         continue
                     surrogate_all.append(y_surrogate)
+                    #print("GLE OVO ", x.category ,y_surrogate, x_lower, x_upper)
         x_lower_all.append(x_lower)
         x_upper_all.append(x_upper)
     

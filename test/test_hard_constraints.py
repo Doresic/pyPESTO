@@ -89,7 +89,7 @@ def main():
     importer = pypesto.petab.PetabImporter(petab_problem)
 
     optimizer = get_optimizer('L-BFGS-B')
-    run_optimization(importer, optimizer, history_name =f'Raf_povijest/' + f'history/history_Raf_' + '_{id}.csv', num_starts=1, min_gap=1e-16)
+    run_optimization(importer, optimizer, history_name =f'Raf_povijest/' + f'history_New_2/history_Raf_' + '_{id}.csv', num_starts=50, min_gap=1e-16)
 
 if __name__ == "__main__":
     main()
