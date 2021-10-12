@@ -47,7 +47,10 @@ class AmiciCalculator:
                  fim_for_hess: bool):
         """Perform the actual AMICI call.
 
-        Called within the :func:`AmiciObjective.__call__` method.
+        This function is called inside :func:`pypesto.AmiciObjective.__call__`
+        after some preprocessing,
+        and is supposed to return the function value, derivatives and
+        possibly residuals as a dict for the given input.
 
         Parameters
         ----------
@@ -110,11 +113,32 @@ class AmiciCalculator:
                                    'amici_model.setAddSigmaResiduals().')
             self._known_least_squares_safe = True  # don't check this again
 
+        self._check_least_squares(sensi_order, mode, rdatas)
+
         return calculate_function_values(
             rdatas=rdatas, sensi_order=sensi_order, mode=mode,
             amici_model=amici_model, amici_solver=amici_solver, edatas=edatas,
             x_ids=x_ids, parameter_mapping=parameter_mapping,
             fim_for_hess=fim_for_hess)
+
+    def _check_least_squares(
+            self, sensi_order: int, mode: str, rdatas: List['amici.ExpData']):
+        """
+        Check whether residual sensitivity based least squares optimization is
+        applicable. This is not the case if the noise model depends on
+        estimated parameters.
+        """
+        if not self._known_least_squares_safe and sensi_order > 0 \
+                and mode == MODE_RES:
+            if any(
+                ((r['ssigmay'] is not None and np.any(r['ssigmay']))
+                 or
+                 (r['ssigmaz'] is not None and np.any(r['ssigmaz'])))
+                for r in rdatas
+            ):
+                raise RuntimeError('Cannot use least squares solver with'
+                                   'parameter dependent sigma!')
+            self._known_least_squares_safe = True  # don't check this again
 
 
 def calculate_function_values(rdatas,

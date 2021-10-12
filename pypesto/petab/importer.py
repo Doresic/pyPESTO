@@ -12,6 +12,9 @@ from ..problem import Problem
 from ..objective import AmiciObjective, AmiciObjectBuilder, AggregatedObjective
 from ..predict import AmiciPredictor, PredictionResult
 from ..predict.constants import CONDITION_SEP
+from ..hierarchical.problem import InnerProblem
+from ..hierarchical.optimal_scaling_problem import OptimalScalingProblem
+from ..hierarchical.calculator import HierarchicalAmiciCalculator
 from ..objective.priors import NegLogParameterPriors, \
     get_parameter_prior_dict
 from ..objective.constants import MODE_FUN, MODE_RES
@@ -272,6 +275,8 @@ class PetabImporter(AmiciObjectBuilder):
             solver: 'amici.Solver' = None,
             edatas: Sequence['amici.ExpData'] = None,
             force_compile: bool = False,
+            hierarchical: bool = False,
+            qualitative: bool = False,
             **kwargs
     ) -> AmiciObjective:
         """Create a :class:`pypesto.AmiciObjective`.
@@ -330,12 +335,26 @@ class PetabImporter(AmiciObjectBuilder):
             parameter_mapping=parameter_mapping,
             amici_model=model)
 
+        calculator = None
+        if hierarchical:
+            inner_problem = InnerProblem.from_petab_amici(
+                self.petab_problem, model, edatas)
+            if not inner_problem.is_empty():
+                calculator = HierarchicalAmiciCalculator(inner_problem)
+
+        if qualitative:
+            inner_problem = OptimalScalingProblem.from_petab_amici(
+                self.petab_problem, model, edatas)
+            if not inner_problem.is_empty():
+                calculator = HierarchicalAmiciCalculator(inner_problem)
+
         # create objective
         obj = AmiciObjective(
             amici_model=model, amici_solver=solver, edatas=edatas,
             x_ids=par_ids, x_names=par_ids,
             parameter_mapping=parameter_mapping,
             amici_object_builder=self,
+            calculator=calculator,
             **kwargs)
 
         return obj
@@ -512,6 +531,17 @@ class PetabImporter(AmiciObjectBuilder):
         """
         if objective is None:
             objective = self.create_objective(**kwargs)
+
+        x_fixed_indices = self.petab_problem.x_fixed_indices
+        x_fixed_vals = self.petab_problem.x_nominal_fixed_scaled
+        x_ids = self.petab_problem.x_ids
+        if isinstance(objective.calculator, HierarchicalAmiciCalculator):
+            for inner_x_id in objective.calculator.inner_problem.get_x_ids():
+                if inner_x_id in x_fixed_indices:
+                    x_fixed_vals[x_fixed_indices.index(inner_x_id)] = np.nan
+                else:
+                    x_fixed_indices.append(x_ids.index(inner_x_id))
+                    x_fixed_vals.append(np.nan)
 
         prior = self.create_prior()
 

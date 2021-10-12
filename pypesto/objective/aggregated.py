@@ -20,7 +20,6 @@ class AggregatedObjective(ObjectiveBase):
         """
         Constructor.
 
-
         Parameters
         ----------
         objectives:

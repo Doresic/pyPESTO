@@ -13,6 +13,7 @@ from ..problem import Problem
 from ..objective.constants import MODE_FUN, FVAL, GRAD
 from .result import OptimizerResult
 
+
 try:
     import cyipopt
 except ImportError:
