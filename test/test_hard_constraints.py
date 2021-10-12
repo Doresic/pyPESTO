@@ -8,6 +8,8 @@ import petab
 import logging
 from datetime import datetime
 
+import matplotlib.pyplot as plt
+
 import warnings
 from scipy.optimize import OptimizeWarning
 
@@ -78,18 +80,39 @@ def main():
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
-    
     petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_hard_constraints/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+    '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+    
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_hard_constraints/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
 
    # petab.flatten_timepoint_specific_output_overrides(petab_problem) #this is useless for us, don't use it, comment out the error
 
     importer = pypesto.petab.PetabImporter(petab_problem)
-
     optimizer = get_optimizer('L-BFGS-B')
-    run_optimization(importer, optimizer, history_name =f'Raf_povijest/' + f'history_New_2/history_Raf_' + '_{id}.csv', num_starts=50, min_gap=1e-16)
+    results_1 = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'history_0.25/history_Raf_' + '_{id}.csv', num_starts=10, min_gap=1e-16)
+
+
+
+#running two optimizations to compare waterfall plots
+"""
+    importer = pypesto.petab.PetabImporter(petab_problem)
+    optimizer = get_optimizer('L-BFGS-B')
+    results_Old = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'history_Old_plot/history_Raf_' + '_{id}.csv', num_starts=100, min_gap=1e-16)
+
+    petab_problem = petab.Problem.from_yaml(
+    '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_hard_constraints/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+
+    importer = pypesto.petab.PetabImporter(petab_problem)
+    optimizer = get_optimizer('L-BFGS-B')
+    results_New = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'history_New_plot/history_Raf_' + '_{id}.csv', num_starts=100, min_gap=1e-16)
+
+    pypesto.visualize.waterfall([results_Old, results_New], legends=['Monotone categories', 'Hard constraints'],scale_y='log10', y_limits=2e-17, size=(15,6))
+    plt.savefig("waterfall_hard_cons.png")
+
+"""
+    
+
 
 if __name__ == "__main__":
     main()

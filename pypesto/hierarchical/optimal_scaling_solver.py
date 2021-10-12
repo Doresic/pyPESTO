@@ -69,7 +69,7 @@ class OptimalScalingInnerSolver(InnerSolver):
                 hard_constraints = problem.get_hard_constraints_for_group(gr)
                 #print(hard_constraints)
                 obj = calculate_obj_fun_for_hard_constraints(xs, sim, self.options, hard_constraints)
-                #fake optimization results
+                #fake optimization results, explain more ZEBO
                 surrogate_opt_results_from_hard_constraints = {'success' : True, 'fun' : obj}
                 optimal_surrogates.append(surrogate_opt_results_from_hard_constraints)
                 continue
