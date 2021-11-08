@@ -115,6 +115,7 @@ class OptimalScalingInnerSolver(InnerSolver):
         condition_map_sim_var = parameter_mapping[0].map_sim_var
         #print(condition_map_sim_var)
         par_sim_ids = list(amici_model.getParameterIds())
+        par_sim_idx=-1
         #print(par_sim_ids)
         # TODO: Doesn't work with condition specific parameters
         for par_sim, par_opt in condition_map_sim_var.items():
@@ -122,7 +123,8 @@ class OptimalScalingInnerSolver(InnerSolver):
                 continue
             if par_opt.startswith('optimalScaling_'):
                 continue
-            par_sim_idx = par_sim_ids.index(par_sim)
+            #par_sim_idx = par_sim_ids.index(par_sim) ZEBO REPLACE
+            par_sim_idx += 1
             par_opt_idx = par_opt_ids.index(par_opt)
             grad = 0.0
             #print(par_sim, par_opt)
@@ -558,7 +560,7 @@ def get_bounds_for_category(x: InnerParameter,
         if x_category == 1:
             x_lower = 0
         elif x_category > 1:
-            x_lower = optimal_scaling_bounds[x_category - 2] + interval_gap
+            x_lower = optimal_scaling_bounds[x_category - 2] + 0.5 * interval_gap
         else:
             raise ValueError('Category value needs to be larger than 0.')
     elif options['method'] == STANDARD:

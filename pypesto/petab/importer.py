@@ -53,7 +53,7 @@ class PetabImporter(AmiciObjectBuilder):
             Flag indicating if the PEtab problem shall be validated.
         """
         self.petab_problem = petab_problem
-
+        validate_petab=False
         if validate_petab:
             if petab.lint_problem(petab_problem):
                 raise ValueError("Invalid PEtab problem.")

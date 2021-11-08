@@ -75,6 +75,7 @@ def parameters(
     if isinstance(parameter_indices, str):
         if parameter_indices == 'all':
             parameter_indices = range(0, results[0].problem.dim_full)
+            print(parameter_indices)
         elif parameter_indices == 'free_only':
             parameter_indices = results[0].problem.x_free_indices
         else:
