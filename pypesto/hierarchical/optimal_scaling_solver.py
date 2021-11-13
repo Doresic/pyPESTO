@@ -3,6 +3,7 @@ import warnings
 from typing import Dict, List, Tuple
 
 import numpy as np
+from numpy.lib.function_base import gradient
 import pandas as pd
 
 from ..optimize import Optimizer
@@ -64,6 +65,7 @@ class OptimalScalingInnerSolver(InnerSolver):
         #print("EVO SIM:", sim)
         for gr in problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING):
             xs = problem.get_xs_for_group(gr)
+            #Hard constraints group:
             if (gr in problem.hard_constraints.group.values):
                 #print(gr, "Tu sam")
                 hard_constraints = problem.get_hard_constraints_for_group(gr)
@@ -73,8 +75,18 @@ class OptimalScalingInnerSolver(InnerSolver):
                 surrogate_opt_results_from_hard_constraints = {'success' : True, 'fun' : obj}
                 optimal_surrogates.append(surrogate_opt_results_from_hard_constraints)
                 continue
+            #Quantitative data group:
+            elif(gr in problem.quantitative_data.group.values):
+                #print(gr, "Tu sam")
+                quantitative_data = problem.get_quantitative_data_for_group(gr)
+                obj = calculate_obj_fun_for_quantitative_data(sim, quantitative_data)
+                obj_fun_from_quantitative_data = {'success' : True, 'fun' : obj}
+                optimal_surrogates.append(obj_fun_from_quantitative_data)
+                continue
+            #Qualitative data group:
             #print("Running for group: ", gr)
             surrogate_opt_results = optimize_surrogate_data(xs, sim, self.options)
+            #print(surrogate_opt_results['x'])
             optimal_surrogates.append(surrogate_opt_results)
         return optimal_surrogates
 
@@ -112,6 +124,7 @@ class OptimalScalingInnerSolver(InnerSolver):
                             snllh,
                             ):
         #breakpoint()
+        #print(sy)
         condition_map_sim_var = parameter_mapping[0].map_sim_var
         #print(condition_map_sim_var)
         par_sim_ids = list(amici_model.getParameterIds())
@@ -124,6 +137,8 @@ class OptimalScalingInnerSolver(InnerSolver):
             if par_opt.startswith('optimalScaling_'):
                 continue
             #par_sim_idx = par_sim_ids.index(par_sim) ZEBO REPLACE
+            #Umjesto nesto, samo gledaj prvih nekoliko, jer su oni parametri koji su interesantni?
+            #K3 i K5?
             par_sim_idx += 1
             par_opt_idx = par_opt_ids.index(par_opt)
             grad = 0.0
@@ -150,19 +165,35 @@ class OptimalScalingInnerSolver(InnerSolver):
 
                     grad += df_dtheta
                     continue
-
+                elif(gr in problem.quantitative_data.group.values):
+                    quantitative_data = problem.get_quantitative_data_for_group(gr)
+                    measurements=quantitative_data.measurement.values
+                    sim_all = get_sim_all_for_quantitative(gr, sim)
+                    print("Y sim", sim_all)
+                    print(measurements)
+                    sy_all = get_sy_all_for_quantitative(gr, sy, par_sim_idx)
+                    Weights = problem.get_w_for_quantitative(sim_all)
+                    Weights_dot = problem.get_wdot_for_quantitative(sim_all, sy_all)
+                    res = measurements - sim_all
+                    print(res)
+                    df_dtheta = res.dot(res.dot(Weights_dot) - 2*Weights.dot(sy_all))
+                    
+                    grad += df_dtheta
+                    continue
                 xi = get_xi(gr, problem, x_inner_opt[idx], sim, self.options)
+                print("Evo xi:", xi)
                 sim_all = get_sim_all(problem.get_xs_for_group(gr), sim)
                 sy_all = get_sy_all(problem.get_xs_for_group(gr), sy, par_sim_idx)
-                #print(sim_all)
+                print("A sim", sim_all)
                 #print(sy_all)
+
 
                 problem.groups[gr]['W'] = problem.get_w(gr, sim_all)
                 problem.groups[gr]['Wdot'] = problem.get_wdot(gr, sim_all, sy_all)
 
                 res = np.block([xi[:problem.groups[gr]['num_datapoints']] - sim_all,
                                 np.zeros(problem.groups[gr]['num_inner_params'] - problem.groups[gr]['num_datapoints'])])
-                #print(res)
+                print(res)
                 df_dxi = 2 * problem.groups[gr]['W'].dot(res)
 
                 dy_dtheta = get_dy_dtheta(gr, problem, sy_all)
@@ -352,6 +383,15 @@ def get_sy_all(xs, sy, par_idx):
                 for sim_sy_i in sim_sy:
                     sy_all.append(sim_sy_i)
     return np.array(sy_all)
+    
+def get_sy_all_for_quantitative(gr, sy, par_idx):
+    sy_all = []
+    gr = int(gr) -1
+    for sy_i in sy:
+            sim_sy = sy_i[:, par_idx, gr]
+            for sim_sy_i in sim_sy:
+                sy_all.append(sim_sy_i)
+    return np.array(sy_all)
 
 
 def get_sim_all(xs, sim: List[np.ndarray]) -> list:
@@ -368,6 +408,16 @@ def get_sim_all(xs, sim: List[np.ndarray]) -> list:
     #print("Evo sim all: ", sim_all)
     return sim_all
 
+def get_sim_all_for_quantitative(gr, sim: List[np.ndarray]) -> list:
+    """"Get list of all simulations for quantitative group"""
+    gr = int(gr) - 1
+    sim = np.asarray(sim)
+    sim_temp = sim[:, :, gr]
+    sim_all = np.zeros(sim_temp.size)
+    for i in range(len(sim_temp)):
+        for j in range(len(sim_temp[i])):
+            sim_all[i+j] = sim_temp[i][j]
+    return sim_all
 
 def get_surrogate_all(xs,
                       optimal_scaling_bounds,
@@ -718,3 +768,16 @@ def get_xi_for_hard_constraints(gr,
     xi[problem.groups[gr]['lb_indices']] = np.array(x_lower_all)
     xi[problem.groups[gr]['ub_indices']] = np.array(x_upper_all)
     return xi
+
+def calculate_obj_fun_for_quantitative_data(sim: List[np.ndarray],
+                                           quantitative_data: pd.DataFrame):
+    group = int(quantitative_data.group.values[0])-1
+    sim_all = get_sim_all_for_quantitative(group, sim)
+    measurements=np.asarray(quantitative_data.measurement.values)
+    
+    w = np.sum(np.abs(sim_all)) + 1e-8
+    obj = 0.0
+    for i in range(len(sim_all)):
+        obj += (sim_all[i]- measurements[i]) ** 2
+    obj = np.divide(obj, w)
+    return obj

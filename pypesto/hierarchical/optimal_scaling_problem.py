@@ -15,39 +15,42 @@ class OptimalScalingProblem(InnerProblem):
     def __init__(self,
                  xs: List[InnerParameter],
                  data: List[np.ndarray],
+                 quantitative_data: pd.DataFrame,
                  hard_constraints: pd.DataFrame):
         super().__init__(xs, data)
         self.hard_constraints = hard_constraints
+        self.quantitative_data = quantitative_data
         self.groups = {}
 
         for idx, gr in enumerate(self.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
-            self.groups[gr] = {}
-            xs = self.get_xs_for_group(gr)
-            self.groups[gr]['num_categories'] = len(xs)
-            self.groups[gr]['num_datapoints'] = np.sum([np.sum([np.sum(ixs) for ixs in x.ixs]) for x in xs])
+            if(gr not in quantitative_data.group.values): 
+                self.groups[gr] = {}
+                xs = self.get_xs_for_group(gr)
+                self.groups[gr]['num_categories'] = len(xs)
+                self.groups[gr]['num_datapoints'] = np.sum([np.sum([np.sum(ixs) for ixs in x.ixs]) for x in xs])
 
-            self.groups[gr]['num_inner_params'] = self.groups[gr]['num_datapoints'] + \
-                                                  2 * self.groups[gr]['num_categories']
+                self.groups[gr]['num_inner_params'] = self.groups[gr]['num_datapoints'] + \
+                                                    2 * self.groups[gr]['num_categories']
 
-            self.groups[gr]['num_constr_full'] = 2 * self.groups[gr]['num_datapoints'] + \
-                                                 2 * self.groups[gr]['num_categories']  # - 1
+                self.groups[gr]['num_constr_full'] = 2 * self.groups[gr]['num_datapoints'] + \
+                                                    2 * self.groups[gr]['num_categories']  # - 1
 
-            self.groups[gr]['lb_indices'] = \
-                list(range(self.groups[gr]['num_datapoints'],
-                           self.groups[gr]['num_datapoints'] + self.groups[gr]['num_categories']))
+                self.groups[gr]['lb_indices'] = \
+                    list(range(self.groups[gr]['num_datapoints'],
+                            self.groups[gr]['num_datapoints'] + self.groups[gr]['num_categories']))
 
-            self.groups[gr]['ub_indices'] = \
-                list(range(self.groups[gr]['num_datapoints'] + self.groups[gr]['num_categories'],
-                           self.groups[gr]['num_inner_params']))
+                self.groups[gr]['ub_indices'] = \
+                    list(range(self.groups[gr]['num_datapoints'] + self.groups[gr]['num_categories'],
+                            self.groups[gr]['num_inner_params']))
 
-            self.groups[gr]['cat_ixs'] = {}
-            self.get_cat_indices(gr, xs)
+                self.groups[gr]['cat_ixs'] = {}
+                self.get_cat_indices(gr, xs)
 
-            self.groups[gr]['C'] = self.initialize_c(gr, xs)
+                self.groups[gr]['C'] = self.initialize_c(gr, xs)
 
-            self.groups[gr]['W'] = self.initialize_w(gr)
+                self.groups[gr]['W'] = self.initialize_w(gr)
 
-            self.groups[gr]['Wdot'] = self.initialize_w(gr)
+                self.groups[gr]['Wdot'] = self.initialize_w(gr)
 
     @staticmethod
     def from_petab_amici(
@@ -116,6 +119,19 @@ class OptimalScalingProblem(InnerProblem):
              np.zeros(2 * self.groups[gr]['num_categories'])])
         )
         return weights
+    
+    def get_w_for_quantitative(self, y_sim_all):
+        weights = np.diag(
+            np.ones(len(y_sim_all)) / (np.sum(np.abs(y_sim_all)) + 1e-8)
+        )
+        return weights
+
+    def get_wdot_for_quantitative(self, y_sim_all, sy_all):
+        weights = np.diag(
+            np.ones(len(y_sim_all)) * (
+                        -1 * np.sum(sy_all) / ((np.sum(np.abs(y_sim_all)) + 1e-8) ** 2))
+        )
+        return weights
 
     def get_d(self, gr, xs, y_sim_all, eps):
         # if 'minGap' not in options:
@@ -182,6 +198,9 @@ class OptimalScalingProblem(InnerProblem):
     def get_hard_constraints_for_group(self, group: float):
         return self.hard_constraints[self.hard_constraints['group'].astype(float)==group]
 
+    def get_quantitative_data_for_group(self, group: float):
+        return self.quantitative_data[self.quantitative_data['group'].astype(float)==group]
+
 
 
 def qualitative_inner_problem_from_petab_problem(
@@ -190,6 +209,9 @@ def qualitative_inner_problem_from_petab_problem(
         edatas: List['amici.ExpData']):
     # get hard constrained measurements from measurement.df
     hard_constraints=get_hard_constraints(petab_problem)
+
+    #get quantitative data from measurement.df
+    quantitative_data = get_quantitative_data(petab_problem.measurement_df, amici_model)
 
     print("Evo hard cons: \n", hard_constraints)
     # inner parameters
@@ -213,7 +235,7 @@ def qualitative_inner_problem_from_petab_problem(
     for par in inner_parameters:
         par.ixs = ix_matrices[par.id]
 
-    return OptimalScalingProblem(inner_parameters, edatas, hard_constraints)
+    return OptimalScalingProblem(inner_parameters, edatas, quantitative_data, hard_constraints)
 
 def get_hard_constraints(petab_problem: petab.Problem):
     measurement_df = petab_problem.measurement_df
@@ -234,3 +256,18 @@ def get_hard_constraints(petab_problem: petab.Problem):
                                     'seen': str(group) + '&' + str(category)}, ignore_index=True)
                 #print(hard_cons_df, sep='\n')
     return hard_cons_df
+
+def get_quantitative_data(measurement_df: pd.DataFrame, amici_model: 'amici.Model'):
+    observable_ids = amici_model.getObservableIds()
+    quantitative_data = pd.DataFrame(columns=['observableId', 'simulationConditionId', 'measurement', 'group'])
+    measurement_df = measurement_df[pd.isnull(measurement_df['observableParameters'])]
+    
+    for index, row in measurement_df.iterrows():
+        group = observable_ids.index(row['observableId']) + 1
+        quantitative_data = quantitative_data.append({'observableId': row["observableId"],
+                                    'simulationConditionId': row['simulationConditionId'],
+                                    'measurement': row["measurement"],
+                                    'group' : float(group) }, ignore_index=True)
+    return quantitative_data
+
+

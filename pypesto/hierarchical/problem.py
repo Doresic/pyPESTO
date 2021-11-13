@@ -49,6 +49,11 @@ class InnerProblem:
 
     def get_groups_for_xs(self, type: str):
         groups = [x.group for x in self.xs.values() if x.type == type]
+        groups = list(set(groups))
+        if hasattr(self, 'quantitative_data'):
+            if not self.quantitative_data.empty:
+                for gr in self.quantitative_data.group.values:
+                    groups.append(gr)
         return list(set(groups))
 
     def get_xs_for_group(self, group: int):
