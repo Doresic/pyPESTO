@@ -71,8 +71,11 @@ def get_optimizer(optimizer_name):
 def main():
     """Napisi opis..."""
 
+    # petab_problem = petab.Problem.from_yaml(
+    # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
+    
     petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
+    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
 
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_HardConstraints/Boehm_JProteomeRes2014OptimalScaling_HardConstraints.yaml')
@@ -90,7 +93,7 @@ def main():
 
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('L-BFGS-B')
-    results = run_optimization(importer, optimizer, history_name =f'histories/Boehm_histories/' + f'First_try/history_Raf_' + '_{id}.csv', num_starts=20, min_gap=1e-16)
+    results = run_optimization(importer, optimizer, history_name =f'histories/Boehm_histories/' + f'First_try/history_Boehm_' + '_{id}.csv', num_starts=3, min_gap=1e-16)
 
 
     pypesto.visualize.waterfall([results],
@@ -101,7 +104,7 @@ def main():
     plt.savefig("plots/waterfall_Boehm.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [2,3],
+                                 parameter_indices = [0, 1, 2, 3, 4, 5],
                                  size=(15,6), 
                                  legends=['Monotone categories', 'Hard constraints'],
                                  balance_alpha=True)
