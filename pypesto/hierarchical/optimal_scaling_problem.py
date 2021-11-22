@@ -15,9 +15,11 @@ class OptimalScalingProblem(InnerProblem):
     def __init__(self,
                  xs: List[InnerParameter],
                  data: List[np.ndarray],
+                 quantitative_data: pd.DataFrame,
                  hard_constraints: pd.DataFrame):
         super().__init__(xs, data)
         self.hard_constraints = hard_constraints
+        self.quantitative_data = quantitative_data
         self.groups = {}
 
         for idx, gr in enumerate(self.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
@@ -181,6 +183,9 @@ class OptimalScalingProblem(InnerProblem):
 
     def get_hard_constraints_for_group(self, group: float):
         return self.hard_constraints[self.hard_constraints['group'].astype(float)==group]
+    
+    def get_quantitative_data_for_group(self, group: float):
+        return self.quantitative_data[self.quantitative_data['group'].astype(float)==group]
 
 
 
@@ -190,6 +195,9 @@ def qualitative_inner_problem_from_petab_problem(
         edatas: List['amici.ExpData']):
     # get hard constrained measurements from measurement.df
     hard_constraints=get_hard_constraints(petab_problem)
+
+    #get quantitative data from measurement.df
+    quantitative_data = get_quantitative_data(petab_problem.measurement_df, amici_model)
 
     print("Evo hard cons: \n", hard_constraints)
     # inner parameters
@@ -213,7 +221,7 @@ def qualitative_inner_problem_from_petab_problem(
     for par in inner_parameters:
         par.ixs = ix_matrices[par.id]
 
-    return OptimalScalingProblem(inner_parameters, edatas, hard_constraints)
+    return OptimalScalingProblem(inner_parameters, edatas, quantitative_data, hard_constraints)
 
 def get_hard_constraints(petab_problem: petab.Problem):
     measurement_df = petab_problem.measurement_df
@@ -234,3 +242,15 @@ def get_hard_constraints(petab_problem: petab.Problem):
                                     'seen': str(group) + '&' + str(category)}, ignore_index=True)
                 #print(hard_cons_df, sep='\n')
     return hard_cons_df
+
+def get_quantitative_data(measurement_df: pd.DataFrame, amici_model: 'amici.Model'):
+    observable_ids = amici_model.getObservableIds()
+    quantitative_data = pd.DataFrame(columns=['observableId', 'simulationConditionId', 'measurement', 'group'])
+
+    for index, row in measurement_df.iterrows():
+        group = observable_ids.index(row['observableId']) + 1
+        quantitative_data = quantitative_data.append({'observableId': row["observableId"],
+                                    'simulationConditionId': row['simulationConditionId'],
+                                    'measurement': row["measurement"],
+                                    'group' : float(group) }, ignore_index=True)
+    return quantitative_data

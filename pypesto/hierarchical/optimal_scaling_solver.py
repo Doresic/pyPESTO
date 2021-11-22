@@ -1,4 +1,6 @@
 from math import e
+import math
+import csv
 import warnings
 from typing import Dict, List, Tuple
 
@@ -63,19 +65,12 @@ class OptimalScalingInnerSolver(InnerSolver):
         optimal_surrogates = []
         #print("EVO SIM:", sim)
         for gr in problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING):
-            xs = problem.get_xs_for_group(gr)
-            if (gr in problem.hard_constraints.group.values):
-                #print(gr, "Tu sam")
-                hard_constraints = problem.get_hard_constraints_for_group(gr)
-                #print(hard_constraints)
-                obj = calculate_obj_fun_for_hard_constraints(xs, sim, self.options, hard_constraints)
-                #fake optimization results, explain more ZEBO
-                surrogate_opt_results_from_hard_constraints = {'success' : True, 'fun' : obj}
-                optimal_surrogates.append(surrogate_opt_results_from_hard_constraints)
-                continue
-            #print("Running for group: ", gr)
-            surrogate_opt_results = optimize_surrogate_data(xs, sim, self.options)
-            optimal_surrogates.append(surrogate_opt_results)
+            quantitative_data = problem.get_quantitative_data_for_group(gr)
+            optimal_xi = spline_get_optimal_xi(gr, sim, quantitative_data)
+            optimal_xi = spline_ensure_monotonicity(optimal_xi)
+            obj = spline_calculate_obj(gr, optimal_xi, sim, quantitative_data)
+            obj_fun_from_spline = {'success' : True, 'fun' : obj}
+            optimal_surrogates.append(obj_fun_from_spline)
         return optimal_surrogates
 
     @staticmethod
@@ -128,56 +123,96 @@ class OptimalScalingInnerSolver(InnerSolver):
             par_opt_idx = par_opt_ids.index(par_opt)
             grad = 0.0
             #print(par_sim, par_opt)
-            for idx, gr in enumerate(problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
-                if (gr in problem.hard_constraints.group.values): #group of hard constraint measurements
-                    hard_constraints = problem.get_hard_constraints_for_group(gr)
-                    xi = get_xi_for_hard_constraints(gr, problem, hard_constraints, sim, self.options)
-                    sim_all = get_sim_all(problem.get_xs_for_group(gr), sim)
-                    sy_all = get_sy_all(problem.get_xs_for_group(gr), sy, par_sim_idx)
-                    #print(sim_all)
-                    #print(sy_all)
-
-                    problem.groups[gr]['W'] = problem.get_w(gr, sim_all)
-                    problem.groups[gr]['Wdot'] = problem.get_wdot(gr, sim_all, sy_all)
-
-                    res = np.block([xi[:problem.groups[gr]['num_datapoints']] - sim_all,
-                                    np.zeros(problem.groups[gr]['num_inner_params'] - problem.groups[gr]['num_datapoints'])])
-                    #print(res)
-
-                    dy_dtheta = get_dy_dtheta(gr, problem, sy_all)
-
-                    df_dtheta = res.dot(res.dot(problem.groups[gr]['Wdot']) - 2*problem.groups[gr]['W'].dot(dy_dtheta)) # -2 * problem.W.dot(dy_dtheta).dot(res)
-
-                    grad += df_dtheta
-                    continue
-
-                xi = get_xi(gr, problem, x_inner_opt[idx], sim, self.options)
-                sim_all = get_sim_all(problem.get_xs_for_group(gr), sim)
-                sy_all = get_sy_all(problem.get_xs_for_group(gr), sy, par_sim_idx)
+            for gr in range(1,3):
+                Jacobian_derivative = np.zeros((6,6))
+                rhs = np.zeros(6)
+                
+                quantitative_data = problem.get_quantitative_data_for_group(gr)
+                measurements=quantitative_data.measurement.values          
+                sim_all = get_sim_all_for_quantitative(gr, sim)
+                sy_all = get_sy_all_for_quantitative(gr, sy, par_sim_idx)
+                original_xi = spline_get_optimal_xi(gr, sim, quantitative_data)
+                xi = spline_ensure_monotonicity(original_xi)
+                with open('/home/zebo/Desktop/spline_xi.csv', 'a', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(xi)
+                print("xi for group ", gr, ": \n", xi)
                 #print(sim_all)
-                #print(sy_all)
+                w = np.sum(np.abs(sim_all)) + 1e-8
+                w_dot = -1 * np.sum(sy_all) / (w**2)
+                
+                if(gr == 1.0):
+                    delta_c = 5
+                else: 
+                    delta_c = 1/6
+                
+                for y_k, z_k, y_dot_k in \
+                        zip(sim_all, measurements, sy_all):
+                    n=math.ceil(y_k / delta_c)
+                    i = n-1 #just the iterator to go over the Jacobian matrix
+                    if(n>6): n=7
+                    #ALSO MAKE THE LAST MONOTONICITY STEP
+                    if(n<7):
+                        if(n>1): Jacobian_derivative[i][i-1] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
+                        Jacobian_derivative[i][i] += (y_k - (n-1)*delta_c)**2
+                        if(n>1): rhs[i] += - xi[i-1] * y_dot_k *((2*n-1)*delta_c - 2* y_k) 
+                        rhs[i] += z_k * y_dot_k * delta_c - xi[i] * y_dot_k * (y_k-(n-1)*delta_c)
+                    if(n>1):
+                        Jacobian_derivative[i-1][i-1] += (n*delta_c - y_k)**2
+                        if(n<7): Jacobian_derivative[i-1][i] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
+                        if(n<7): rhs[i-1] += - xi[i] * y_dot_k * ((2*n-1)*delta_c - 2* y_k) 
+                        rhs[i-1] += z_k * ((n)*delta_c - y_k)*delta_c - xi[i-1] * y_dot_k * (y_k - n*delta_c)
+                    if(n==7):
+                        Jacobian_derivative[i-1][i-1] += delta_c**2
+                from scipy import linalg
+                #print(Jacobian_derivative)
+                #print(rhs)
+                xi_dot = linalg.lstsq(Jacobian_derivative, rhs, lapack_driver='gelsy')
+                #print(xi_dot[0])
+                #print(original_xi)
+                #print(Jacobian.dot(xi_dot[0]))
+                curr_max = original_xi[0]
+                curr_der = xi_dot[0][0]
+                #Ensure monotonicity:
+                for i in range(len(original_xi)):
+                    if(curr_max<=original_xi[i]):
+                        curr_max =original_xi[i]
+                        curr_der =xi_dot[0][i]
+                        continue
+                    xi_dot[0][i] = curr_der
+                df_dxi = np.zeros(6)
+                df_dyk = 0
+                res = 0
+                for y_k, z_k, y_dot_k in \
+                        zip(sim_all, measurements, sy_all):
+                    n=math.ceil(y_k / delta_c)
+                    i=n-1
+                    #calculate df_dxi
+                    if(n<7):
+                        df_dxi[i] += -2 * (z_k - (y_k - (n-1)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (y_k - (n-1)*delta_c) / delta_c
+                    if(n>1 and n<7):
+                        df_dxi[i-1] += -2 * (z_k - (y_k - (n-1)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (n*delta_c - y_k) / delta_c
+                    if(n==7):
+                        df_dxi[i-1] += -2 * (z_k - xi[i-1])
+                    #calculate df_dyk (without w_dot term)
+                    if(n < 7 and n >1):
+                        df_dyk+= -2 * (z_k - (y_k - delta_c * (n-1))*(xi[i] - xi[i-1])/delta_c -xi[i-1]) * (xi[i] - xi[i-1]) * y_dot_k /delta_c
+                    elif(n==1):
+                        df_dyk+= -2 * (z_k - y_k*xi[i]/delta_c) * xi[i] * y_dot_k /delta_c
+                    #calculate res for the w_dot term
+                    if(n < 7 and n >1):
+                        res+= (z_k - (y_k - delta_c * (n-1))*(xi[i] - xi[i-1])/delta_c -xi[i-1])**2
+                    elif(n==7):
+                        res+= (z_k - xi[i-1])**2
+                    elif(n==1):
+                        res+= (z_k - y_k*xi[i]/delta_c)**2
 
-                problem.groups[gr]['W'] = problem.get_w(gr, sim_all)
-                problem.groups[gr]['Wdot'] = problem.get_wdot(gr, sim_all, sy_all)
-
-                res = np.block([xi[:problem.groups[gr]['num_datapoints']] - sim_all,
-                                np.zeros(problem.groups[gr]['num_inner_params'] - problem.groups[gr]['num_datapoints'])])
-                #print(res)
-                df_dxi = 2 * problem.groups[gr]['W'].dot(res)
-
-                dy_dtheta = get_dy_dtheta(gr, problem, sy_all)
-
-                dd_dtheta = problem.get_dd_dtheta(gr, problem.get_xs_for_group(gr), sim_all, sy_all)
-                d = problem.get_d(gr, problem.get_xs_for_group(gr), sim_all, self.options['minGap'])
-
-                mu = get_mu(gr, problem, xi, res, d)
-
-                dxi_dtheta = calculate_dxi_dtheta(gr, problem, xi, mu, dy_dtheta, res, d, dd_dtheta)
-
-                df_dtheta = res.dot(res.dot(problem.groups[gr]['Wdot']) - 2*problem.groups[gr]['W'].dot(dy_dtheta)) # -2 * problem.W.dot(dy_dtheta).dot(res)
-
-                grad += dxi_dtheta.dot(df_dxi) + df_dtheta
+                df_dyk = np.divide(df_dyk, w)
+                df_dyk += w_dot * res
+                df_dxi = np.divide(df_dxi, w)
+                grad += df_dxi.dot(xi_dot[0]) + df_dyk
             snllh[par_opt_idx] = grad
+        print(snllh)
         #print("I calculated the grad with optimized inner pars")
         return snllh
 
@@ -193,6 +228,107 @@ class OptimalScalingInnerSolver(InnerSolver):
                    'minGap': 1e-16}
         return options
 
+def spline_get_optimal_xi(gr: float,
+                          sim: List[np.ndarray],
+                          quantitative_data: pd.DataFrame):
+        measurements=quantitative_data.measurement.values          
+        sim_all = get_sim_all_for_quantitative(gr, sim)
+        #breakpoint()  
+        # if(gr==1.0):
+        #     print("Group ", gr, ": \n", measurements)   
+        #     print(sim_all)
+        Jacobian = np.zeros((6,6))
+        rhs = np.zeros(6)
+        if(gr == 1.0):
+            delta_c = 5
+        else: 
+            delta_c = 1/6
+        for y_k, z_k in \
+                zip(sim_all, measurements):
+            n=math.ceil(y_k / delta_c)
+            if(n>6): n=7
+            i = n-1 #just the iterator to go over the Jacobian matrix
+            #ALSO MAKE THE LAST MONOTONICITY STEP
+            if(n<7):
+                if(n>1): Jacobian[i][i-1] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
+                Jacobian[i][i] += (y_k - (n-1)*delta_c)**2
+                rhs[i] += z_k * (y_k - (n-1)*delta_c)*delta_c
+            if(n>1 and n<7):
+                Jacobian[i-1][i-1] += (n*delta_c - y_k)**2
+                if(n<7): Jacobian[i-1][i] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
+                rhs[i-1] += z_k * ((n)*delta_c - y_k)*delta_c
+            if(n==7):
+                Jacobian[i-1][i-1] += delta_c**2
+                rhs[i-1] += z_k * delta_c**2
+        
+        from scipy import linalg
+        #print(Jacobian)
+        #print(rhs)
+        optimal_xi = linalg.lstsq(Jacobian, rhs, lapack_driver='gelsy')
+        #breakpoint()
+        #if(gr==1.0): print(optimal_xi[0])
+        #print(Jacobian.dot(optimal_xi[0]))
+        return optimal_xi[0]
+
+def spline_calculate_obj(gr: float,
+                   optimal_xi: np.ndarray,
+                   sim: List[np.ndarray],
+                   quantitative_data: pd.DataFrame):
+        obj = 0
+        measurements=quantitative_data.measurement.values          
+        sim_all = get_sim_all_for_quantitative(gr, sim)
+        w = np.sum(np.abs(sim_all)) + 1e-8
+        if(gr == 1.0):
+            delta_c = 5
+        else: 
+            delta_c = 1/6
+        
+        for y_k, z_k in \
+                zip(sim_all, measurements):
+            n=math.ceil(y_k / delta_c)
+            i = n-1
+            if(n < 7 and n >1):
+                obj+= (z_k - (y_k - delta_c * (n-1))*(optimal_xi[i] - optimal_xi[i-1])/delta_c -optimal_xi[i-1])**2
+            elif(n==7):
+                obj+= (z_k - optimal_xi[i-1])**2
+            elif(n==1):
+                obj+= (z_k - y_k*optimal_xi[i]/delta_c)**2
+        obj = np.divide(obj, w)
+        #print("Obj for group ", gr, ": ", obj)
+        return obj
+
+def spline_ensure_monotonicity(optimal_xi: np.ndarray):
+    curr_max = optimal_xi[0]
+    temp = np.copy(optimal_xi)
+    #Ensure monotonicity:
+    for i in range(len(temp)):
+        if(curr_max<temp[i]):
+            curr_max =temp[i]
+            continue
+        temp[i] = curr_max
+    #breakpoint()
+    #print(optimal_xi[0])
+    return temp
+
+def get_sim_all_for_quantitative(gr, sim: List[np.ndarray]) -> list:
+    """"Get list of all simulations for quantitative group"""
+    gr = int(gr) - 1
+    sim = np.asarray(sim)
+    sim_temp = sim[:, :, gr]
+    sim_all = np.zeros(sim_temp.size)
+    for i in range(len(sim_temp)):
+        for j in range(len(sim_temp[i])):
+            sim_all[i+j] = sim_temp[i][j]
+    return sim_all
+
+def get_sy_all_for_quantitative(gr, sy, par_idx):
+    sy_all = []
+    gr = int(gr) -1
+    for sy_i in sy:
+            sim_sy = sy_i[:, par_idx, gr]
+            for sim_sy_i in sim_sy:
+                sy_all.append(sim_sy_i)
+    return np.array(sy_all)
 
 def calculate_dxi_dtheta(gr,
                          problem: OptimalScalingProblem,

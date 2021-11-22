@@ -74,8 +74,8 @@ def main():
     # petab_problem = petab.Problem.from_yaml(
     # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
     
-    petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
 
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_HardConstraints/Boehm_JProteomeRes2014OptimalScaling_HardConstraints.yaml')
@@ -83,8 +83,8 @@ def main():
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+    petab_problem = petab.Problem.from_yaml(
+    '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
     
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_hard_constraints/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
@@ -92,8 +92,8 @@ def main():
    # petab.flatten_timepoint_specific_output_overrides(petab_problem) #this is useless for us, don't use it, comment out the error
 
     importer = pypesto.petab.PetabImporter(petab_problem)
-    optimizer = get_optimizer('L-BFGS-B')
-    results = run_optimization(importer, optimizer, history_name =f'histories/Boehm_histories/' + f'First_try/history_Boehm_' + '_{id}.csv', num_starts=3, min_gap=1e-16)
+    optimizer = get_optimizer('SLSQP')
+    results = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'Spline/history_raf_' + '_{id}.csv', num_starts=1, min_gap=1e-16)
 
 
     pypesto.visualize.waterfall([results],
@@ -104,7 +104,7 @@ def main():
     plt.savefig("plots/waterfall_Boehm.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [0, 1, 2, 3, 4, 5],
+                                 parameter_indices = [2, 3],
                                  size=(15,6), 
                                  legends=['Monotone categories', 'Hard constraints'],
                                  balance_alpha=True)
