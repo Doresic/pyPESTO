@@ -93,7 +93,7 @@ def main():
 
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('SLSQP')
-    results = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'Spline/history_raf_' + '_{id}.csv', num_starts=1, min_gap=1e-16)
+    results = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'Analytical_spline/history_raf_' + '_{id}.csv', num_starts=1, min_gap=1e-16)
 
 
     pypesto.visualize.waterfall([results],
@@ -101,14 +101,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/waterfall_Boehm.png")
+    plt.savefig("plots/Analytical_spline_waterfall.png")
 
     pypesto.visualize.parameters([results],
                                  parameter_indices = [2, 3],
                                  size=(15,6), 
-                                 legends=['Monotone categories', 'Hard constraints'],
+                                 legends=['Analytical spline'],
                                  balance_alpha=True)
-    plt.savefig("plots/parameters_Boehm.png")
+    plt.savefig("plots/Analytical_spline_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots

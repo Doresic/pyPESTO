@@ -133,11 +133,14 @@ class OptimalScalingInnerSolver(InnerSolver):
                 sy_all = get_sy_all_for_quantitative(gr, sy, par_sim_idx)
                 original_xi = spline_get_optimal_xi(gr, sim, quantitative_data)
                 xi = spline_ensure_monotonicity(original_xi)
-                with open('/home/zebo/Desktop/spline_xi.csv', 'a', newline='') as file:
+                
+                with open('/home/zebo/Desktop/analytical_spline_xi.csv', 'a', newline='') as file:
                     writer = csv.writer(file)
                     writer.writerow(xi)
-                print("xi for group ", gr, ": \n", xi)
-                #print(sim_all)
+                #print("xi for group ", gr, ": \n", xi)
+                print("sim_all: \n ", sim_all, "\n", 
+                      "measurements : \n", measurements, "\n",
+                      "xi: \n ", xi)
                 w = np.sum(np.abs(sim_all)) + 1e-8
                 w_dot = -1 * np.sum(sy_all) / (w**2)
                 
@@ -212,7 +215,7 @@ class OptimalScalingInnerSolver(InnerSolver):
                 df_dxi = np.divide(df_dxi, w)
                 grad += df_dxi.dot(xi_dot[0]) + df_dyk
             snllh[par_opt_idx] = grad
-        print(snllh)
+        #print(snllh)
         #print("I calculated the grad with optimized inner pars")
         return snllh
 

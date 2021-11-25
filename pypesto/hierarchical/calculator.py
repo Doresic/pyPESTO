@@ -103,7 +103,18 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         if any([rdata['status'] < 0.0 for rdata in rdatas]):
             return get_error_output(amici_model, edatas, rdatas, sensi_order, mode, dim)
 
-        sim = [rdata['y'] for rdata in rdatas]
+        sim_broken = [rdata['y'] for rdata in rdatas]
+        #print(sim_broken)
+        sim = np.zeros((9,1,2))
+        sim[0][0]=sim_broken[0][0]
+        sim[1][0]=sim_broken[4][0]
+        sim[2][0]=sim_broken[1][0]
+        sim[3][0]=sim_broken[3][0]
+        sim[4][0]=sim_broken[6][0]
+        sim[5][0]=sim_broken[7][0]
+        sim[6][0]=sim_broken[8][0]
+        sim[7][0]=sim_broken[2][0]
+        sim[8][0]=sim_broken[5][0]
         sigma = [rdata['sigmay'] for rdata in rdatas]
 
         # compute optimal inner parameters
@@ -156,7 +167,17 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             #    edatas,
             #    num_threads=min(n_threads, len(edatas)),
             #)
-            sy = [rdata['sy'] for rdata in rdatas]
+            sy_broken = [rdata['sy'] for rdata in rdatas]
+            sy = np.zeros((9,1,2,2))
+            sy[0][0]=sy_broken[0][0]
+            sy[1][0]=sy_broken[4][0]
+            sy[2][0]=sy_broken[1][0]
+            sy[3][0]=sy_broken[3][0]
+            sy[4][0]=sy_broken[6][0]
+            sy[5][0]=sy_broken[7][0]
+            sy[6][0]=sy_broken[8][0]
+            sy[7][0]=sy_broken[2][0]
+            sy[8][0]=sy_broken[5][0]
             #print("Evo sy: \n", sy)
             snllh = self.inner_solver.calculate_gradients(self.inner_problem,
                                                           x_inner_opt,
