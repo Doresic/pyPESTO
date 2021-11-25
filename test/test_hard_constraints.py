@@ -28,7 +28,6 @@ from pypesto.hierarchical.problem import InnerProblem
 def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
     """Run optimization"""
     pypesto.logging.log_to_console(logging.INFO)
-
     objective = importer.create_objective(qualitative=True, guess_steadystate=False)
 
     problem = importer.create_problem(objective)
@@ -48,6 +47,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
     print("Zavrsio sam ovo")
     history_options = pypesto.HistoryOptions(trace_record=True, storage_file=history_name)
     #np.random.seed(num_starts)
+
     result = pypesto.optimize.minimize(problem,
                                        n_starts=num_starts,
                                        optimizer=optimizer,
@@ -74,8 +74,8 @@ def main():
     # petab_problem = petab.Problem.from_yaml(
     # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
     
-    petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
+    #petab_problem = petab.Problem.from_yaml(
+    #'/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
 
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_HardConstraints/Boehm_JProteomeRes2014OptimalScaling_HardConstraints.yaml')
@@ -83,8 +83,8 @@ def main():
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+    petab_problem = petab.Problem.from_yaml(
+    '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
     
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_hard_constraints/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
@@ -93,7 +93,7 @@ def main():
 
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('L-BFGS-B')
-    results = run_optimization(importer, optimizer, history_name =f'histories/Boehm_histories/' + f'First_try/history_Boehm_' + '_{id}.csv', num_starts=3, min_gap=1e-16)
+    results = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'Numerical_spline/history_Raf_' + '_{id}.csv', num_starts=50, min_gap=1e-16)
 
 
     pypesto.visualize.waterfall([results],
@@ -101,14 +101,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/waterfall_Boehm.png")
+    plt.savefig("plots/numerical_spline_waterfall.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [0, 1, 2, 3, 4, 5],
+                                 parameter_indices = [2, 3],
                                  size=(15,6), 
-                                 legends=['Monotone categories', 'Hard constraints'],
+                                 legends=['Numerical spline'],
                                  balance_alpha=True)
-    plt.savefig("plots/parameters_Boehm.png")
+    plt.savefig("plots/numerical_spline_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots

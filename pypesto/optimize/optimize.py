@@ -91,7 +91,9 @@ def minimize(
     startpoints = assign_startpoints(
         n_starts=n_starts, startpoint_method=startpoint_method,
         problem=problem, startpoint_resample=options.startpoint_resample)
-
+    startpoints[0][2] = 3.6
+    startpoints[0][3] = -1
+    print(startpoints)
     if ids is None:
         ids = [str(j) for j in range(n_starts)]
     if len(ids) != n_starts:
