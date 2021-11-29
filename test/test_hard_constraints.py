@@ -93,7 +93,11 @@ def main():
 
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('L-BFGS-B')
-    results = run_optimization(importer, optimizer, history_name =f'histories/Raf_histories/' + f'Numerical_spline/history_Raf_' + '_{id}.csv', num_starts=50, min_gap=1e-16)
+    results = run_optimization(importer, 
+                               optimizer, 
+                               history_name =f'histories/Raf_histories/' + f'Numerical_spline_fix_200/history_Raf_' + '_{id}.csv', 
+                               num_starts=200, 
+                               min_gap=1e-16)
 
 
     pypesto.visualize.waterfall([results],
@@ -101,14 +105,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/numerical_spline_waterfall.png")
+    plt.savefig("plots/numerical_spline_waterfall_fix_200.png")
 
     pypesto.visualize.parameters([results],
                                  parameter_indices = [2, 3],
                                  size=(15,6), 
                                  legends=['Numerical spline'],
                                  balance_alpha=True)
-    plt.savefig("plots/numerical_spline_parameters.png")
+    plt.savefig("plots/numerical_spline_parameters_fix_200.png")
 
 """
 #running two optimizations to compare waterfall plots

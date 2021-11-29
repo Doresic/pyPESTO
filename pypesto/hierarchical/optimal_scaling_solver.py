@@ -156,7 +156,7 @@ class OptimalScalingInnerSolver(InnerSolver):
                 Jacobian, rhs = spline_get_Jacobian(gr, sim_all, measurements)
                 mu = spline_get_mu(Jacobian, rhs, xi, w, C)
                 
-                xi_dot = spline_get_dxi_dtheta(gr, sim_all, sy_all, measurements, xi, w, C, mu)
+                xi_dot = spline_get_dxi_dtheta(gr, sim_all, sy_all, measurements, xi, w, w_dot, C, mu)
                 
                 # breakpoint()
                 # print(C)
@@ -170,6 +170,7 @@ class OptimalScalingInnerSolver(InnerSolver):
                 for y_k, z_k, y_dot_k in \
                         zip(sim_all, measurements, sy_all):
                     n=math.ceil(y_k / delta_c)
+                    if(n>6): n=7
                     i=n-1
                     #calculate df_dxi
                     if(n<7):
@@ -220,6 +221,11 @@ def spline_optimize_surrogate(gr: float,
     from scipy.optimize import minimize
 
     sim_all = get_sim_all_for_quantitative(gr, sim)
+    # breakpoint()
+    # quantitative_data = quantitative_data.sort_values(by='simulationConditionId')
+    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
+    #     print(quantitative_data)
+
     measurements = quantitative_data.measurement.values
     w = np.sum(np.abs(sim_all)) + 1e-8
 
@@ -256,6 +262,7 @@ def obj_spline(gr: float,
         for y_k, z_k in \
                 zip(sim_all, measurements):
             n=math.ceil(y_k / delta_c)
+            if(n>6): n=7
             i = n-1
             if(n < 7 and n >1):
                 obj+= (z_k - (y_k - delta_c * (n-1))*(optimal_xi[i] - optimal_xi[i-1])/delta_c -optimal_xi[i-1])**2
@@ -335,6 +342,8 @@ def spline_get_Jacobian(gr,
                 Jacobian[i-1][i-1] += delta_c**2
                 rhs[i-1] += z_k * delta_c**2
         #print(Jacobian)
+        Jacobian = np.divide(Jacobian, delta_c**2)
+        rhs = np.divide(rhs, delta_c**2)
         return Jacobian, rhs
 
 def spline_get_dxi_dtheta(gr,
@@ -343,11 +352,12 @@ def spline_get_dxi_dtheta(gr,
                                    measurements,
                                    xi,
                                    w,
+                                   w_dot,
                                    C,
                                    mu):
         Jacobian_derivative = np.zeros((6,6))
         rhs = np.zeros(12)
-
+        w = 1/w
         if(gr == 1.0):
             delta_c = 5
         else: 
@@ -356,23 +366,29 @@ def spline_get_dxi_dtheta(gr,
         for y_k, z_k, y_dot_k in \
                 zip(sim_all, measurements, sy_all):
             n=math.ceil(y_k / delta_c)
-            i = n-1 #just the iterator to go over the Jacobian matrix
             if(n>6): n=7
-            if(n<7):
-                if(n>1): Jacobian_derivative[i][i-1] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
-                Jacobian_derivative[i][i] += (y_k - (n-1)*delta_c)**2
-                if(n>1): rhs[i] += - xi[i-1] * y_dot_k *((2*n-1)*delta_c - 2* y_k) 
-                rhs[i] += z_k * y_dot_k * delta_c - xi[i] * y_dot_k * (y_k-(n-1)*delta_c)
-            if(n>1):
-                Jacobian_derivative[i-1][i-1] += (n*delta_c - y_k)**2
-                if(n<7): Jacobian_derivative[i-1][i] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
-                if(n<7): rhs[i-1] += - xi[i] * y_dot_k * ((2*n-1)*delta_c - 2* y_k) 
-                rhs[i-1] += z_k * ((n)*delta_c - y_k)*delta_c - xi[i-1] * y_dot_k * (y_k - n*delta_c)
+            i = n-1 #just the iterator to go over the Jacobian matrix
+            #calculate the Jacobian derivative:
             if(n==7):
-                Jacobian_derivative[i-1][i-1] += delta_c**2
+                print("U SEDAM SAAAAM LEEEEL")
+                Jacobian_derivative[i-1][i-1] += 2 * w * delta_c**2
+                rhs[i-1] += - 2 * xi[i-1] * w + 2 * z_k * w_dot
+            elif(n<7):
+                if(n>1): Jacobian_derivative[i][i-1] += 2*w*(y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
+                Jacobian_derivative[i][i] += 2*w*(y_k - (n-1)*delta_c)**2 #done 
+                if(n>1): rhs[i] += - 2 * xi[i-1] * w * y_dot_k *((2*n-1)*delta_c - 2* y_k) - 2 * xi[i-1] * w_dot * (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
+                rhs[i] += - 2 * xi[i] * (2* y_dot_k * w *(y_k-(n-1)*delta_c) + w_dot * (y_k - (n-1)*delta_c)**2) #done
+                rhs[i] += 2 * z_k * delta_c * (y_dot_k * w + w_dot * (y_k-(n-1)*delta_c)) #done
+            elif(n>1):
+                Jacobian_derivative[i-1][i-1] += 2*w*(n*delta_c - y_k)**2 #done
+                if(n<7): Jacobian_derivative[i-1][i] += 2*w*(y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
+                if(n<7): rhs[i-1] += - 2 * xi[i] * w * y_dot_k * ((2*n-1)*delta_c - 2* y_k) - 2 * xi[i] * w_dot * (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
+                rhs[i-1] += - 2 * xi[i-1] * (2 * w * y_dot_k * (y_k - n*delta_c) + w_dot * (y_k - n*delta_c)**2) #done
+                rhs[i-1] += 2 * z_k * delta_c * (- y_dot_k * w + w_dot * (n*delta_c - y_k)) #done
+            
         
-        Jacobian_derivative = 2* np.divide(Jacobian_derivative, w)
-        rhs = 2*np.divide(rhs, w)
+        Jacobian_derivative =  np.divide(Jacobian_derivative, ((delta_c)**2))
+        rhs = np.divide(rhs, ((delta_c)**2))
 
         from scipy.sparse import csc_matrix, linalg
 

@@ -75,7 +75,6 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         # set order in solver to 0
         # amici_solver.setSensitivityOrder(0)
         amici_solver.setSensitivityOrder(sensi_order)
-
         # fill in boring values
         x_dct = copy.deepcopy(x_dct)
         for key, val in self.inner_problem.get_boring_pars(
@@ -115,6 +114,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         sim[7][0]=sim_broken[2][0]
         sim[8][0]=sim_broken[5][0]
         #print(sim)
+        #breakpoint()
         sigma = [rdata['sigmay'] for rdata in rdatas]
 
         # compute optimal inner parameters
