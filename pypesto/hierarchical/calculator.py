@@ -77,6 +77,14 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         amici_solver.setSensitivityOrder(sensi_order)
         # fill in boring values
         x_dct = copy.deepcopy(x_dct)
+        # x_dct['Epo_degradation_BaF3'] = -2.53
+        # x_dct['k_exp_hetero'] = 2
+        # x_dct['k_exp_homo'] = -4
+        # x_dct['k_imp_hetero'] = -1.68
+        # x_dct['k_imp_homo'] = 3.54
+        # x_dct['k_phos'] = 5
+        
+        #print(x_dct)
         for key, val in self.inner_problem.get_boring_pars(
                 scaled=True).items():
             x_dct[key] = val
@@ -101,18 +109,21 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         if any([rdata['status'] < 0.0 for rdata in rdatas]):
             return get_error_output(amici_model, edatas, rdatas, sensi_order, mode, dim)
 
-        sim_broken = [rdata['y'] for rdata in rdatas]
-        #print(sim_broken)
-        sim = np.zeros((9,1,2))
-        sim[0][0]=sim_broken[0][0]
-        sim[1][0]=sim_broken[4][0]
-        sim[2][0]=sim_broken[1][0]
-        sim[3][0]=sim_broken[3][0]
-        sim[4][0]=sim_broken[6][0]
-        sim[5][0]=sim_broken[7][0]
-        sim[6][0]=sim_broken[8][0]
-        sim[7][0]=sim_broken[2][0]
-        sim[8][0]=sim_broken[5][0]
+        sim = [rdata['y'] for rdata in rdatas]
+        #print("Evo sim:", sim)
+        #breakpoint()
+        # sim_broken = [rdata['y'] for rdata in rdatas]
+        # #print(sim_broken)
+        # sim = np.zeros((9,1,2))
+        # sim[0][0]=sim_broken[0][0]
+        # sim[1][0]=sim_broken[4][0]
+        # sim[2][0]=sim_broken[1][0]
+        # sim[3][0]=sim_broken[3][0]
+        # sim[4][0]=sim_broken[6][0]
+        # sim[5][0]=sim_broken[7][0]
+        # sim[6][0]=sim_broken[8][0]
+        # sim[7][0]=sim_broken[2][0]
+        # sim[8][0]=sim_broken[5][0]
         #print(sim)
         #breakpoint()
         sigma = [rdata['sigmay'] for rdata in rdatas]
@@ -167,18 +178,18 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             #    edatas,
             #    num_threads=min(n_threads, len(edatas)),
             #)
-            sy_broken = [rdata['sy'] for rdata in rdatas]
-            sy = np.zeros((9,1,2,2))
-            sy[0][0]=sy_broken[0][0]
-            sy[1][0]=sy_broken[4][0]
-            sy[2][0]=sy_broken[1][0]
-            sy[3][0]=sy_broken[3][0]
-            sy[4][0]=sy_broken[6][0]
-            sy[5][0]=sy_broken[7][0]
-            sy[6][0]=sy_broken[8][0]
-            sy[7][0]=sy_broken[2][0]
-            sy[8][0]=sy_broken[5][0]
-            #print("Evo sy: \n", sy)
+            sy = [rdata['sy'] for rdata in rdatas]
+            # sy = np.zeros((9,1,2,2))
+            # sy[0][0]=sy_broken[0][0]
+            # sy[1][0]=sy_broken[4][0]
+            # sy[2][0]=sy_broken[1][0]
+            # sy[3][0]=sy_broken[3][0]
+            # sy[4][0]=sy_broken[6][0]
+            # sy[5][0]=sy_broken[7][0]
+            # sy[6][0]=sy_broken[8][0]
+            # sy[7][0]=sy_broken[2][0]
+            # sy[8][0]=sy_broken[5][0]
+            # #print("Evo sy: \n", sy)
             snllh = self.inner_solver.calculate_gradients(self.inner_problem,
                                                           x_inner_opt,
                                                           sim,

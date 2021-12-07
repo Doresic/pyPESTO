@@ -252,5 +252,6 @@ def get_quantitative_data(measurement_df: pd.DataFrame, amici_model: 'amici.Mode
         quantitative_data = quantitative_data.append({'observableId': row["observableId"],
                                     'simulationConditionId': row['simulationConditionId'],
                                     'measurement': row["measurement"],
+                                    'time' : row['time'],
                                     'group' : float(group) }, ignore_index=True)
     return quantitative_data

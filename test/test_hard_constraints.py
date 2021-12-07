@@ -43,7 +43,9 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
     problem.objective.calculator.inner_solver = OptimalScalingInnerSolver(options={'method': 'reduced',
                                                                                    'reparameterized': False,
                                                                                    'intervalConstraints': 'max',
-                                                                                   'minGap': min_gap})
+                                                                                   'minGap': min_gap,
+                                                                                   'numberofInnerParams': [7],
+                                                                                   'deltac': [3]})
     print("Zavrsio sam ovo")
     history_options = pypesto.HistoryOptions(trace_record=True, storage_file=history_name)
     #np.random.seed(num_starts)
@@ -71,8 +73,8 @@ def get_optimizer(optimizer_name):
 def main():
     """Napisi opis..."""
 
-    # petab_problem = petab.Problem.from_yaml(
-    # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
+    petab_problem = petab.Problem.from_yaml(
+    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
     
     #petab_problem = petab.Problem.from_yaml(
     #'/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
@@ -83,20 +85,26 @@ def main():
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
-    petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+    
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_tanh/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
     
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_hard_constraints/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
 
    # petab.flatten_timepoint_specific_output_overrides(petab_problem) #this is useless for us, don't use it, comment out the error
 
+    petab_problem = petab.Problem.from_yaml(
+    '/home/zebo/Documents/Basis_1_supp/models/Rahman_MBS2016/Rahman_MBS2016.yaml')
+    
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('L-BFGS-B')
     results = run_optimization(importer, 
                                optimizer, 
-                               history_name =f'histories/Raf_histories/' + f'Numerical_spline_fix_200/history_Raf_' + '_{id}.csv', 
-                               num_starts=200, 
+                               history_name =f'histories/Rahman_histories/' + f'Numerical_2_spline_test/history_Rahman_' + '_{id}.csv', 
+                               num_starts=100, 
                                min_gap=1e-16)
 
 
@@ -105,14 +113,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/numerical_spline_waterfall_fix_200.png")
+    plt.savefig("plots/Rahman_2_numerical_spline_waterfall_test.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [2, 3],
+                                 parameter_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8],
                                  size=(15,6), 
                                  legends=['Numerical spline'],
                                  balance_alpha=True)
-    plt.savefig("plots/numerical_spline_parameters_fix_200.png")
+    plt.savefig("plots/Rahman_2_numerical_spline_parameters_test.png")
 
 """
 #running two optimizations to compare waterfall plots
