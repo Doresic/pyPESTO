@@ -154,7 +154,8 @@ class OptimalScalingInnerSolver(InnerSolver):
                 xi = get_xi(gr, problem, x_inner_opt[idx], sim, self.options)
                 sim_all = get_sim_all(problem.get_xs_for_group(gr), sim)
                 sy_all = get_sy_all(problem.get_xs_for_group(gr), sy, par_sim_idx)
-                #print(sim_all)
+                #print("sim_all for group ", gr, ": \n", sim_all)
+                #breakpoint()
                 #print(sy_all)
 
                 problem.groups[gr]['W'] = problem.get_w(gr, sim_all)

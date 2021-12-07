@@ -78,6 +78,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
 
         # fill in boring values
         x_dct = copy.deepcopy(x_dct)
+        #print(x_dct)
         for key, val in self.inner_problem.get_boring_pars(
                 scaled=True).items():
             x_dct[key] = val
