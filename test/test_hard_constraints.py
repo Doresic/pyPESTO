@@ -44,12 +44,12 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
                                                                                    'reparameterized': False,
                                                                                    'intervalConstraints': 'max',
                                                                                    'minGap': min_gap,
-                                                                                   'numberofInnerParams': [7],
-                                                                                   'deltac': [3]})
+                                                                                   'numberofInnerParams': [3, 13, 7, 7, 6, 9, 13, 11],
+                                                                                   'deltac': [1, 1, 0.25, 40, 200, 0.3, 0.17, 12]})
     print("Zavrsio sam ovo")
     history_options = pypesto.HistoryOptions(trace_record=True, storage_file=history_name)
     #np.random.seed(num_starts)
-
+    
     result = pypesto.optimize.minimize(problem,
                                        n_starts=num_starts,
                                        optimizer=optimizer,
@@ -73,8 +73,8 @@ def get_optimizer(optimizer_name):
 def main():
     """Napisi opis..."""
 
-    petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
+    #petab_problem = petab.Problem.from_yaml(
+    #'/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
     
     #petab_problem = petab.Problem.from_yaml(
     #'/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
@@ -96,15 +96,24 @@ def main():
 
    # petab.flatten_timepoint_specific_output_overrides(petab_problem) #this is useless for us, don't use it, comment out the error
 
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/Basis_1_supp/models/Rahman_MBS2016/Rahman_MBS2016.yaml')
+
+    # petab_problem = petab.Problem.from_yaml(
+    # '/home/zebo/Documents/Basis_1_supp/models/Fiedler_BMC2016/Fiedler_BMC2016.yaml')
+
     petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/Basis_1_supp/models/Rahman_MBS2016/Rahman_MBS2016.yaml')
+    '/home/zebo/Documents/Basis_1_supp/models/Raia_CancerResearch2011OptimalScaling/Raia_CancerResearch2011OptimalScaling.yaml')
+        
     
+
+
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('L-BFGS-B')
     results = run_optimization(importer, 
                                optimizer, 
-                               history_name =f'histories/Rahman_histories/' + f'Numerical_2_spline_test/history_Rahman_' + '_{id}.csv', 
-                               num_starts=100, 
+                               history_name =f'histories/Raia_histories/' + f'test/history_Raia_' + '_{id}.csv', 
+                               num_starts=20, 
                                min_gap=1e-16)
 
 
@@ -113,14 +122,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/Rahman_2_numerical_spline_waterfall_test.png")
+    plt.savefig("plots/Raia_teest_waterfall.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8],
-                                 size=(15,6), 
+                                 parameter_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+                                 size=(15,12), 
                                  legends=['Numerical spline'],
                                  balance_alpha=True)
-    plt.savefig("plots/Rahman_2_numerical_spline_parameters_test.png")
+    plt.savefig("plots/Raia_teest_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots

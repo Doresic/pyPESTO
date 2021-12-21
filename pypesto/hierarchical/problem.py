@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List
 
+from petab.C import CONDITION_ID
+
 from .parameter import InnerParameter
 
 try:
@@ -10,7 +12,7 @@ try:
     from petab.C import (
         ESTIMATE, LOWER_BOUND, NOISE_PARAMETERS, PARAMETER_ID,
         PARAMETER_SCALE, OBSERVABLE_ID, OBSERVABLE_PARAMETERS, TIME,
-        UPPER_BOUND)
+        UPPER_BOUND, SIMULATION_CONDITION_ID)
     import amici
 except ImportError:
     pass
@@ -200,6 +202,48 @@ def ixs_for_measurement_specific_parameters(
                             (condition_ix, time_ix, observable_ix))
     return ixs_for_par
 
+def get_simulation_indices(
+        petab_problem: petab.Problem, amici_model: 'amici.Model'):
+
+    observable_ids = amici_model.getObservableIds()
+
+    simulation_conditions = \
+        petab_problem.get_simulation_conditions_from_measurement_df()
+    # number_of_timepoints_per_cond_and_obs = np.zeros((len(observable_ids), len(simulation_conditions)))    
+    # for _, measurement in petab_problem.measurement_df.iterrows():
+    #     number_of_timepoints_per_cond_and_obs[observable_ids.index(
+    #                 measurement[OBSERVABLE_ID]), np.nonzero(simulation_conditions[SIMULATION_CONDITION_ID].values == measurement[SIMULATION_CONDITION_ID])[0][0]] += 1
+    # print(number_of_timepoints_per_cond_and_obs)
+
+    simulation_indices = []
+    for i in range(len(observable_ids)):
+        simulation_indices.append([])
+    for i in range(len(observable_ids)):
+        for j in range(len(simulation_conditions)):
+            simulation_indices[i].append([])
+    
+    for condition_indx, condition in simulation_conditions.iterrows():
+        df_for_condition = petab.get_rows_for_condition(
+            measurement_df=petab_problem.measurement_df, condition=condition)
+
+        timepoints = sorted(df_for_condition[TIME].unique().astype(float))
+        timepoints_w_reps = _get_timepoints_with_replicates(
+            measurement_df=df_for_condition)
+        #print(timepoints_w_reps)
+        
+        for _, measurement in df_for_condition.iterrows():
+            time=measurement[TIME]
+            time_indx=timepoints_w_reps.index(time)
+            observable_indx=observable_ids.index(measurement[OBSERVABLE_ID])
+            simulation_indices[observable_indx][condition_indx].append(time_indx)
+        #print(simulation_indices)
+    
+    for i in range(len(observable_ids)):
+        for j in range(len(simulation_conditions)):
+            simulation_indices[i][j].sort()
+    #print("Sorted: \n", simulation_indices)
+    
+    return simulation_indices
 
 #def noise
 

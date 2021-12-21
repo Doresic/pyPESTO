@@ -7,6 +7,7 @@ import pandas as pd
 from .problem import InnerProblem
 from .parameter import InnerParameter
 from .problem import (inner_parameters_from_parameter_df,
+                      get_simulation_indices,
                       ixs_for_measurement_specific_parameters,
                       ix_matrices_from_arrays)
 
@@ -16,10 +17,12 @@ class OptimalScalingProblem(InnerProblem):
                  xs: List[InnerParameter],
                  data: List[np.ndarray],
                  quantitative_data: pd.DataFrame,
-                 hard_constraints: pd.DataFrame):
+                 hard_constraints: pd.DataFrame,
+                 simulation_indices: List):
         super().__init__(xs, data)
         self.hard_constraints = hard_constraints
         self.quantitative_data = quantitative_data
+        self.simulation_indices = simulation_indices
         self.groups = {}
 
         for idx, gr in enumerate(self.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
@@ -199,7 +202,10 @@ def qualitative_inner_problem_from_petab_problem(
     #get quantitative data from measurement.df
     quantitative_data = get_quantitative_data(petab_problem.measurement_df, amici_model)
 
-    print("Evo hard cons: \n", hard_constraints)
+    #get simulation indicies
+    simulation_indices = get_simulation_indices(petab_problem, amici_model)
+
+    #print("Evo hard cons: \n", hard_constraints)
     # inner parameters
     inner_parameters = inner_parameters_from_parameter_df(
         petab_problem.parameter_df)
@@ -221,7 +227,7 @@ def qualitative_inner_problem_from_petab_problem(
     for par in inner_parameters:
         par.ixs = ix_matrices[par.id]
 
-    return OptimalScalingProblem(inner_parameters, edatas, quantitative_data, hard_constraints)
+    return OptimalScalingProblem(inner_parameters, edatas, quantitative_data, hard_constraints, simulation_indices)
 
 def get_hard_constraints(petab_problem: petab.Problem):
     measurement_df = petab_problem.measurement_df

@@ -63,13 +63,14 @@ class OptimalScalingInnerSolver(InnerSolver):
             ...
         """
         optimal_surrogates = []
-        #breakpoint()
         #print("EVO SIM:", sim)
+        #breakpoint()
+        simulation_indices = problem.simulation_indices
         for gr in problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING):
             quantitative_data = problem.get_quantitative_data_for_group(gr)
             quantitative_data = quantitative_data.sort_values(by=['simulationConditionId', 'time'])
             #print("Running for group: ", gr)
-            surrogate_opt_results = spline_optimize_surrogate(gr, sim, quantitative_data, self.options)
+            surrogate_opt_results = spline_optimize_surrogate(gr, sim, quantitative_data, simulation_indices, self.options)
             optimal_surrogates.append(surrogate_opt_results)
         return optimal_surrogates
 
@@ -107,10 +108,11 @@ class OptimalScalingInnerSolver(InnerSolver):
                             snllh,
                             ):
         #breakpoint()
+        simulation_indices = problem.simulation_indices
         condition_map_sim_var = parameter_mapping[0].map_sim_var
         #print(condition_map_sim_var)
         par_sim_ids = list(amici_model.getParameterIds())
-        par_sim_idx=-1
+        par_sim_idx=-1 # DOES THIS WOrK IF THE Pars are not connected order 
         #print(par_sim_ids)
         # TODO: Doesn't work with condition specific parameters
         for par_sim, par_opt in condition_map_sim_var.items():
@@ -122,26 +124,30 @@ class OptimalScalingInnerSolver(InnerSolver):
             par_sim_idx += 1
             inner_par_idx = 0
             par_opt_idx = par_opt_ids.index(par_opt)
+    
             grad = 0.0
             #print(par_sim, par_opt)
             for idx, gr in enumerate(problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
                 xi = np.asarray(x_inner_opt[inner_par_idx]['x'])
+                sim_all = get_sim_all_for_quantitative(gr, sim, simulation_indices)
                 #print(xi)
                 inner_par_idx += 1
 
                 with open('/home/zebo/Desktop/numerical_spline_xi.csv', 'a', newline='') as file:
                     writer = csv.writer(file)
-                    writer.writerow(xi)
+                    writer.writerow(np.block([xi, sim_all[2], sim_all[5], sim_all[7]]))
                 
-                sim_all = get_sim_all_for_quantitative(gr, sim)
-                sy_all = get_sy_all_for_quantitative(gr, sy, par_sim_idx)
+                
+                sy_all = get_sy_all_for_quantitative(gr, sy, par_sim_idx, simulation_indices)
                 quantitative_data = problem.get_quantitative_data_for_group(gr)
                 quantitative_data = quantitative_data.sort_values(by=['simulationConditionId', 'time'])
+                # with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
+                #     print(quantitative_data)
                 measurements = quantitative_data.measurement.values
                 #print("xi for group ", gr, ": \n", xi)
-                # print(measurements)
+                #print(measurements)
                 #print(sim_all)
-                # breakpoint()
+                #breakpoint()
                 # print(sy_all)
 
                 N = self.options['numberofInnerParams'][int(gr)-1]
@@ -217,12 +223,13 @@ class OptimalScalingInnerSolver(InnerSolver):
 def spline_optimize_surrogate(gr: float,
                               sim: List[np.ndarray],
                               quantitative_data: pd.DataFrame,
+                              simulation_indices: List,
                               options: Dict):
     """Run optimization for inner problem"""
 
     from scipy.optimize import minimize
-
-    sim_all = get_sim_all_for_quantitative(gr, sim)
+   
+    sim_all = get_sim_all_for_quantitative(gr, sim, simulation_indices)
 
     measurements = quantitative_data.measurement.values
     w = np.sum(np.abs(sim_all)) + 1e-8
@@ -590,25 +597,65 @@ def get_sim_all(xs, sim: List[np.ndarray]) -> list:
     #print("Evo sim all: ", sim_all)
     return sim_all
 
-def get_sim_all_for_quantitative(gr, sim: List[np.ndarray]) -> list:
+def get_sim_all_for_quantitative(gr, sim: List[np.ndarray], simulation_indices: List) -> list:
     """"Get list of all simulations for quantitative group"""
-    gr = int(gr) - 1
-    sim = np.asarray(sim)
-    sim_temp = sim[:, :, gr]
-    sim_all = np.zeros(sim_temp.size)
-    for i in range(len(sim_temp)):
-        for j in range(len(sim_temp[i])):
-            sim_all[i+j] = sim_temp[i][j]
+    
+    gr = int(gr)-1
+    sim_length=0
+    for condition_indx in range(len(simulation_indices[gr])):
+        sim_length+= len(simulation_indices[gr][condition_indx])
+    sim_all= -np.ones((sim_length))
+
+    current_indx=0
+    for condition_indx in range(len(simulation_indices[gr])):
+        for time_indx in simulation_indices[gr][condition_indx]:
+            sim_all[current_indx] = sim[condition_indx][time_indx][gr]
+            current_indx+=1
+    
+    # print(sim_all)
+    # breakpoint()
+    
+    # gr = int(gr) - 1 # OLD STUFF
+    # sim = np.asarray(sim)
+    # sim_temp = sim[:, :, gr]
+    # # if(gr == 0 or gr == 1.0 or gr == 2.0 or gr == 3.0): #FIEDLEr fix
+    # #     sim_all = sim[0][:, gr]
+    # # else:
+    # #     sim_all = np.block([sim[1][:,gr], sim[2][:,gr]])
+    # sim_all = np.zeros(sim_temp.size)
+    # for i in range(len(sim_temp)):
+    #     for j in range(len(sim_temp[i])):
+    #         sim_all[i+j] = sim_temp[i][j]
     return sim_all
 
-def get_sy_all_for_quantitative(gr, sy, par_idx):
-    sy_all = []
-    gr = int(gr) -1
-    for sy_i in sy:
-            sim_sy = sy_i[:, par_idx, gr]
-            for sim_sy_i in sim_sy:
-                sy_all.append(sim_sy_i)
-    return np.array(sy_all)
+def get_sy_all_for_quantitative(gr, sy, par_idx, simulation_indices):
+    
+    #print(sy)
+    gr = int(gr)-1
+    sim_length=0
+    for condition_indx in range(len(simulation_indices[gr])):
+        sim_length+= len(simulation_indices[gr][condition_indx])
+    sy_all = -np.ones((sim_length))
+    i=0
+    current_indx=0
+    for condition_indx in range(len(simulation_indices[gr])):
+        for time_indx in simulation_indices[gr][condition_indx]:
+            sy_all[current_indx] = sy[condition_indx][time_indx][par_idx][gr]
+            current_indx+=1
+    #print(gr, par_idx, sy_all)
+    #breakpoint()
+    #OLDSTUFF
+    # for sy_i in sy:
+        #if(i==0 and (gr == 0 or gr == 1 or gr == 2 or gr == 3)): #Fiedler changes
+            # sim_sy = sy_i[:, par_idx, gr]
+            # for sim_sy_i in sim_sy:
+            #     sy_all.append(sim_sy_i)
+        # if((i==1 or i==2) and (gr == 4.0 or gr == 5 or gr == 6 or gr == 7)):
+        #     sim_sy = sy_i[:, par_idx, gr]
+        #     for sim_sy_i in sim_sy:
+        #         sy_all.append(sim_sy_i)
+        # i=i+1
+    return sy_all
 
 def get_surrogate_all(xs,
                       optimal_scaling_bounds,

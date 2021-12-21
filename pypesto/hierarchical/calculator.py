@@ -77,12 +77,20 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         amici_solver.setSensitivityOrder(sensi_order)
         # fill in boring values
         x_dct = copy.deepcopy(x_dct)
-        # x_dct['Epo_degradation_BaF3'] = -2.53
-        # x_dct['k_exp_hetero'] = 2
-        # x_dct['k_exp_homo'] = -4
-        # x_dct['k_imp_hetero'] = -1.68
-        # x_dct['k_imp_homo'] = 3.54
-        # x_dct['k_phos'] = 5
+        # x_dct['K_1'] = -4.999994697
+        # x_dct['K_2'] = 0.179327683
+        # x_dct['K_3'] = -0.01751816
+        # x_dct['k10'] = -1.578171005
+        # x_dct['k11'] = 2.212619999
+        # x_dct['k2'] = 0.088569897
+        # x_dct['k3'] = 2.886016418
+        # x_dct['k4'] = 0.463435212
+        # x_dct['k5'] = 2.761591228
+        # x_dct['k6'] = 0.557215773
+        # x_dct['tau1'] = -0.614711949
+        # x_dct['tau2'] = -1.674875963
+        #print(x_dct)
+        #breakpoint()
         
         #print(x_dct)
         for key, val in self.inner_problem.get_boring_pars(
@@ -110,8 +118,6 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             return get_error_output(amici_model, edatas, rdatas, sensi_order, mode, dim)
 
         sim = [rdata['y'] for rdata in rdatas]
-        #print("Evo sim:", sim)
-        #breakpoint()
         # sim_broken = [rdata['y'] for rdata in rdatas]
         # #print(sim_broken)
         # sim = np.zeros((9,1,2))
