@@ -85,8 +85,8 @@ def main():
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
+    petab_problem = petab.Problem.from_yaml(
+    '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
     
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_tanh/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
@@ -102,8 +102,8 @@ def main():
     # petab_problem = petab.Problem.from_yaml(
     # '/home/zebo/Documents/Basis_1_supp/models/Fiedler_BMC2016/Fiedler_BMC2016.yaml')
 
-    petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/Basis_1_supp/models/Raia_CancerResearch2011OptimalScaling/Raia_CancerResearch2011OptimalScaling.yaml')
+    #petab_problem = petab.Problem.from_yaml(
+    #'/home/zebo/Documents/Basis_1_supp/models/Raia_CancerResearch2011OptimalScaling/Raia_CancerResearch2011OptimalScaling.yaml')
         
     
 
@@ -112,8 +112,8 @@ def main():
     optimizer = get_optimizer('L-BFGS-B')
     results = run_optimization(importer, 
                                optimizer, 
-                               history_name =f'histories/Raia_histories/' + f'test/history_Raia_' + '_{id}.csv', 
-                               num_starts=20, 
+                               history_name =f'histories/Raf_histories/' + f'sigma_test/history_Raf_' + '_{id}.csv', 
+                               num_starts=2, 
                                min_gap=1e-16)
 
 
@@ -122,14 +122,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/Raia_teest_waterfall.png")
+    plt.savefig("plots/Raf_sigma_waterfall.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+                                 parameter_indices = [2, 3],
                                  size=(15,12), 
                                  legends=['Numerical spline'],
                                  balance_alpha=True)
-    plt.savefig("plots/Raia_teest_parameters.png")
+    plt.savefig("plots/Raf_sigma_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots

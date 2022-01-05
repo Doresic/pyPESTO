@@ -133,9 +133,6 @@ class OptimalScalingInnerSolver(InnerSolver):
                 #print(xi)
                 inner_par_idx += 1
 
-                with open('/home/zebo/Desktop/numerical_spline_xi.csv', 'a', newline='') as file:
-                    writer = csv.writer(file)
-                    writer.writerow(np.block([xi, sim_all[2], sim_all[5], sim_all[7]]))
                 
                 
                 sy_all = get_sy_all_for_quantitative(gr, sy, par_sim_idx, simulation_indices)
@@ -150,8 +147,13 @@ class OptimalScalingInnerSolver(InnerSolver):
                 #breakpoint()
                 # print(sy_all)
 
-                N = self.options['numberofInnerParams'][int(gr)-1]
-                delta_c = self.options['deltac'][int(gr)-1]
+                #N = self.options['numberofInnerParams'][int(gr)-1]
+                #delta_c = self.options['deltac'][int(gr)-1]
+                N, delta_c, c_1 = get_spline_domain(sim_all)
+                
+                with open('/home/zebo/Desktop/numerical_spline_xi.csv', 'a', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(np.block([np.asarray([N, delta_c, c_1]), xi, np.asarray([-1]), sim_all]))
 
                 C = np.diag(-np.ones(N), -1) \
                     + np.diag(np.ones(N +1))
@@ -176,28 +178,28 @@ class OptimalScalingInnerSolver(InnerSolver):
                 res = 0
                 for y_k, z_k, y_dot_k in \
                         zip(sim_all, measurements, sy_all):
-                    n=math.ceil(y_k / delta_c)
+                    n=math.ceil((y_k - c_1)/ delta_c) + 1
                     if(n>N): n=N+1
                     i=n-1
                     #calculate df_dxi
                     if(n<N+1):
-                        df_dxi[i] += -2 * (z_k - (y_k - (n-1)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (y_k - (n-1)*delta_c) / delta_c
+                        df_dxi[i] += -2 * (z_k - (y_k - c_1 - (n-2)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (y_k - c_1 - (n-2)*delta_c) / delta_c
                     if(n>1 and n<N+1):
-                        df_dxi[i-1] += -2 * (z_k - (y_k - (n-1)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (n*delta_c - y_k) / delta_c
+                        df_dxi[i-1] += -2 * (z_k - (y_k - c_1 - (n-2)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (c_1 + (n-1)*delta_c - y_k) / delta_c
                     if(n==N+1):
                         df_dxi[i-1] += -2 * (z_k - xi[i-1])
                     #calculate df_dyk (without w_dot term)
                     if(n < N+1 and n >1):
-                        df_dyk+= -2 * (z_k - (y_k - delta_c * (n-1))*(xi[i] - xi[i-1])/delta_c -xi[i-1]) * (xi[i] - xi[i-1]) * y_dot_k /delta_c
+                        df_dyk+= -2 * (z_k - (y_k - c_1 - delta_c * (n-2))*(xi[i] - xi[i-1])/delta_c -xi[i-1]) * (xi[i] - xi[i-1]) * y_dot_k /delta_c
                     elif(n==1):
-                        df_dyk+= -2 * (z_k - y_k*xi[i]/delta_c) * xi[i] * y_dot_k /delta_c
+                        df_dyk+= -2 * (z_k - y_k*xi[i]/c_1) * xi[i] * y_dot_k /c_1
                     #calculate res for the w_dot term
                     if(n < N+1 and n >1):
-                        res+= (z_k - (y_k - delta_c * (n-1))*(xi[i] - xi[i-1])/delta_c -xi[i-1])**2
+                        res+= (z_k - (y_k - c_1 - delta_c * (n-2))*(xi[i] - xi[i-1])/delta_c -xi[i-1])**2
                     elif(n==N+1):
                         res+= (z_k - xi[i-1])**2
                     elif(n==1):
-                        res+= (z_k - y_k*xi[i]/delta_c)**2
+                        res+= (z_k - y_k*xi[i]/c_1)**2
                 
                 df_dyk = np.divide(df_dyk, w)
                 df_dyk += w_dot * res
@@ -238,7 +240,7 @@ def spline_optimize_surrogate(gr: float,
         return obj_spline(gr, x, sim_all, w, measurements, options)
 
     inner_options = \
-        get_spline_inner_options(gr, measurements, options)
+        get_spline_inner_options(gr, measurements, options, sim_all)
     try:
         results = minimize(obj_surr, **inner_options)
     #this not needed probably?
@@ -260,32 +262,37 @@ def obj_spline(gr: float,
                options: Dict):
         obj = 0
         w = np.sum(np.abs(sim_all)) + 1e-8
-        N = options['numberofInnerParams'][int(gr)-1]
-        delta_c = options['deltac'][int(gr)-1]
+        #N = options['numberofInnerParams'][int(gr)-1]
+        #delta_c = options['deltac'][int(gr)-1]
+        N, delta_c, c_1 = get_spline_domain(sim_all)
 
         for y_k, z_k in \
                 zip(sim_all, measurements):
-            n=math.ceil(y_k / delta_c)
+            n=math.ceil((y_k - c_1)/ delta_c) + 1
+            if(n==1 and c_1 != delta_c): 
+                print("n=1 pazii error")
+                breakpoint()
             if(n>N): n=N+1
             i = n-1
             if(n < N+1 and n >1):
-                obj+= (z_k - (y_k - delta_c * (n-1))*(optimal_xi[i] - optimal_xi[i-1])/delta_c -optimal_xi[i-1])**2
+                obj+= (z_k - (y_k - c_1 - delta_c * (n-2))*(optimal_xi[i] - optimal_xi[i-1])/delta_c -optimal_xi[i-1])**2
             elif(n==N+1):
                 obj+= (z_k - optimal_xi[i-1])**2
             elif(n==1):
-                obj+= (z_k - y_k*optimal_xi[i]/delta_c)**2
+                obj+= (z_k - y_k*optimal_xi[i]/c_1)**2
         obj = np.divide(obj, w)
         #print("Obj for group ", gr, ": ", obj)
         return obj
 
 def get_spline_inner_options(gr: float,
                              measurements: np.ndarray,
-                             options: Dict) -> Dict:
+                             options: Dict,
+                             sim_all: np.ndarray) -> Dict:
 
     """Return default options for scipy optimizer"""
 
     from scipy.optimize import Bounds
-    N = options['numberofInnerParams'][int(gr)-1]
+    N , delta_c, c_1 = get_spline_domain(sim_all)
     
     min_all=max_all=measurements[0]
     for m in measurements:
@@ -324,25 +331,26 @@ def spline_get_Jacobian(gr,
         #     print("Group ", gr, ": \n", measurements)   
         #     print(sim_all)
         
-        N = options['numberofInnerParams'][int(gr)-1]
-        delta_c = options['deltac'][int(gr)-1]
+        #N = options['numberofInnerParams'][int(gr)-1]
+        #delta_c = options['deltac'][int(gr)-1]
+        N, delta_c, c_1 = get_spline_domain(sim_all)
         Jacobian = np.zeros((N,N))
         rhs = np.zeros(N)
 
         for y_k, z_k in \
                 zip(sim_all, measurements):
-            n=math.ceil(y_k / delta_c)
+            n=math.ceil((y_k - c_1)/ delta_c) + 1
             if(n>N): n=N+1
             i = n-1 #just the iterator to go over the Jacobian matrix
             #ALSO MAKE THE LAST MONOTONICITY STEP
             if(n<N+1):
-                if(n>1): Jacobian[i][i-1] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
-                Jacobian[i][i] += (y_k - (n-1)*delta_c)**2
-                rhs[i] += z_k * (y_k - (n-1)*delta_c)*delta_c
+                if(n>1): Jacobian[i][i-1] += (y_k - c_1 - (n-2)*delta_c) * (c_1 + (n-1)*delta_c - y_k)
+                Jacobian[i][i] += (y_k - c_1 - (n-2)*delta_c)**2
+                rhs[i] += z_k * (y_k - c_1 - (n-2)*delta_c)*delta_c
             if(n>1 and n<N+1):
-                Jacobian[i-1][i-1] += (n*delta_c - y_k)**2
-                if(n<N+1): Jacobian[i-1][i] += (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k)
-                rhs[i-1] += z_k * ((n)*delta_c - y_k)*delta_c
+                Jacobian[i-1][i-1] += (c_1 + (n-1)*delta_c - y_k)**2
+                if(n<N+1): Jacobian[i-1][i] += (y_k - c_1 - (n-2)*delta_c) * (c_1 + (n-1)*delta_c - y_k)
+                rhs[i-1] += z_k * (c_1 + (n-1)*delta_c - y_k)*delta_c
             if(n==N+1):
                 Jacobian[i-1][i-1] += delta_c**2
                 rhs[i-1] += z_k * delta_c**2
@@ -363,14 +371,15 @@ def spline_get_dxi_dtheta(gr,
                           options):
                           
         w = 1/w
-        N = options['numberofInnerParams'][int(gr)-1]
-        delta_c = options['deltac'][int(gr)-1]
+        #N = options['numberofInnerParams'][int(gr)-1]
+        #delta_c = options['deltac'][int(gr)-1]
+        N, delta_c, c_1 = get_spline_domain(sim_all)
         Jacobian_derivative = np.zeros((N,N))
         rhs = np.zeros(2*N)
 
         for y_k, z_k, y_dot_k in \
                 zip(sim_all, measurements, sy_all):
-            n=math.ceil(y_k / delta_c)
+            n=math.ceil((y_k - c_1)/ delta_c) + 1
             if(n>N): n=N+1
             i = n-1 #just the iterator to go over the Jacobian matrix
             #calculate the Jacobian derivative:
@@ -379,17 +388,17 @@ def spline_get_dxi_dtheta(gr,
                 Jacobian_derivative[i-1][i-1] += 2 * w * delta_c**2
                 rhs[i-1] += -2*w_dot*( xi[i-1] - z_k)* delta_c**2
             elif(n<N+1):
-                if(n>1): Jacobian_derivative[i][i-1] += 2*w*(y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
-                Jacobian_derivative[i][i] += 2*w*(y_k - (n-1)*delta_c)**2 #done 
-                if(n>1): rhs[i] += - 2 * xi[i-1] * w * y_dot_k *((2*n-1)*delta_c - 2* y_k) - 2 * xi[i-1] * w_dot * (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
-                rhs[i] += - 2 * xi[i] * (2* y_dot_k * w *(y_k-(n-1)*delta_c) + w_dot * (y_k - (n-1)*delta_c)**2) #done
-                rhs[i] += 2 * z_k * delta_c * (y_dot_k * w + w_dot * (y_k-(n-1)*delta_c)) #done
+                if(n>1): Jacobian_derivative[i][i-1] += 2*w*(y_k - c_1 - (n-2)*delta_c) * (c_1 + (n-1)*delta_c - y_k) 
+                Jacobian_derivative[i][i] += 2*w*(y_k - c_1 - (n-2)*delta_c)**2  
+                if(n>1): rhs[i] += - 2 * xi[i-1] * w * y_dot_k *(2*c_1 + (2*n-3)*delta_c - 2* y_k) - 2 * xi[i-1] * w_dot * (y_k - c_1 - (n-2)*delta_c) * (c_1 + (n-1)*delta_c - y_k) 
+                rhs[i] += - 2 * xi[i] * (2* y_dot_k * w *(y_k- c_1 - (n-2)*delta_c) + w_dot * (y_k - c_1 - (n-2)*delta_c)**2) 
+                rhs[i] += 2 * z_k * delta_c * (y_dot_k * w + w_dot * (y_k-c_1 - (n-2)*delta_c)) 
             elif(n>1):
-                Jacobian_derivative[i-1][i-1] += 2*w*(n*delta_c - y_k)**2 #done
-                if(n<N+1): Jacobian_derivative[i-1][i] += 2*w*(y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
-                if(n<N+1): rhs[i-1] += - 2 * xi[i] * w * y_dot_k * ((2*n-1)*delta_c - 2* y_k) - 2 * xi[i] * w_dot * (y_k - (n-1)*delta_c) * ((n)*delta_c - y_k) #done
-                rhs[i-1] += - 2 * xi[i-1] * (2 * w * y_dot_k * (y_k - n*delta_c) + w_dot * (y_k - n*delta_c)**2) #done
-                rhs[i-1] += 2 * z_k * delta_c * (- y_dot_k * w + w_dot * (n*delta_c - y_k)) #done
+                Jacobian_derivative[i-1][i-1] += 2*w*(c_1 + (n-1)*delta_c - y_k)**2 
+                if(n<N+1): Jacobian_derivative[i-1][i] += 2*w*(y_k - c_1 - (n-2)*delta_c) * (c_1 + (n-1)*delta_c - y_k) 
+                if(n<N+1): rhs[i-1] += - 2 * xi[i] * w * y_dot_k * (2*c_1 + (2*n-3)*delta_c - 2* y_k) - 2 * xi[i] * w_dot * (y_k - c_1 - (n-2)*delta_c) * (c_1 + (n-1)*delta_c - y_k) 
+                rhs[i-1] += - 2 * xi[i-1] * (2 * w * y_dot_k * (y_k - c_1 (n-1)*delta_c) + w_dot * (y_k - c_1 - (n-1)*delta_c)**2) 
+                rhs[i-1] += 2 * z_k * delta_c * (- y_dot_k * w + w_dot * (c_1 + (n-1)*delta_c - y_k)) 
             
         
         Jacobian_derivative =  np.divide(Jacobian_derivative, ((delta_c)**2))
@@ -1006,3 +1015,26 @@ def get_xi_for_hard_constraints(gr,
     xi[problem.groups[gr]['lb_indices']] = np.array(x_lower_all)
     xi[problem.groups[gr]['ub_indices']] = np.array(x_upper_all)
     return xi
+
+def get_spline_domain(sim_all):
+    K = len(sim_all)
+
+    min_all=max_all=sim_all[0]
+    for s in sim_all:
+        if(s>max_all): max_all = s
+        if(s<min_all): min_all = s    
+    range_all = max_all - min_all
+
+    if(min_all - range_all/(math.ceil(K/2)-2) < 0):
+        N = math.floor(K/2)
+        delta_c = max_all/(N-1/2)
+        c_1 = delta_c
+    else:
+        N = math.ceil(K/2)
+        delta_c = range_all/(N-2)
+        c_1 = min_all - 0.5*delta_c
+    #print("spline domain: \n", sim_all)
+    #print(N, delta_c, c_1)
+    #print(min_all, 0.1*range_all)
+    return N, delta_c, c_1
+    
