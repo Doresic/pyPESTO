@@ -118,20 +118,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             return get_error_output(amici_model, edatas, rdatas, sensi_order, mode, dim)
 
         sim = [rdata['y'] for rdata in rdatas]
-        # sim_broken = [rdata['y'] for rdata in rdatas]
-        # #print(sim_broken)
-        # sim = np.zeros((9,1,2))
-        # sim[0][0]=sim_broken[0][0]
-        # sim[1][0]=sim_broken[4][0]
-        # sim[2][0]=sim_broken[1][0]
-        # sim[3][0]=sim_broken[3][0]
-        # sim[4][0]=sim_broken[6][0]
-        # sim[5][0]=sim_broken[7][0]
-        # sim[6][0]=sim_broken[8][0]
-        # sim[7][0]=sim_broken[2][0]
-        # sim[8][0]=sim_broken[5][0]
-        #print(sim)
-        #breakpoint()
+        
         sigma = [rdata['sigmay'] for rdata in rdatas]
 
         # compute optimal inner parameters
@@ -139,9 +126,13 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         x_inner_opt = self.inner_solver.solve(
             self.inner_problem, sim, sigma, scaled=True)
 
-        nllh = self.inner_solver.calculate_obj_function(x_inner_opt)
-
-        # print(x_inner_opt)
+        if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
+            nllh = self.inner_solver.calculate_obj_function(x_inner_opt)
+        elif(self.inner_solver.options['InnerOptimizer']=='LeastSquares'):
+            nllh= self.inner_solver.ls_calculate_obj_function(x_inner_opt)
+        else:
+            print("Wrong choice of inner optimizer")
+            breakpoint()
 
         # if sensi_order == 0:
         #     dim = len(x_ids)
@@ -185,26 +176,33 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             #    num_threads=min(n_threads, len(edatas)),
             #)
             sy = [rdata['sy'] for rdata in rdatas]
-            # sy = np.zeros((9,1,2,2))
-            # sy[0][0]=sy_broken[0][0]
-            # sy[1][0]=sy_broken[4][0]
-            # sy[2][0]=sy_broken[1][0]
-            # sy[3][0]=sy_broken[3][0]
-            # sy[4][0]=sy_broken[6][0]
-            # sy[5][0]=sy_broken[7][0]
-            # sy[6][0]=sy_broken[8][0]
-            # sy[7][0]=sy_broken[2][0]
-            # sy[8][0]=sy_broken[5][0]
-            # #print("Evo sy: \n", sy)
-            snllh = self.inner_solver.calculate_gradients(self.inner_problem,
-                                                          x_inner_opt,
-                                                          sim,
-                                                          sy,
-                                                          parameter_mapping,
-                                                          x_ids,
-                                                          amici_model,
-                                                          snllh)
-            #print("Evo snllh: \n", snllh)
+            
+
+            if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
+                snllh = self.inner_solver.calculate_gradients(self.inner_problem,
+                                                              x_inner_opt,
+                                                              sim,
+                                                              sy,
+                                                              parameter_mapping,
+                                                              x_ids,
+                                                              amici_model,
+                                                              snllh,
+                                                              sigma)
+            elif(self.inner_solver.options['InnerOptimizer']=='LeastSquares'):
+                snllh = self.inner_solver.ls_calculate_gradients(self.inner_problem,
+                                                                    x_inner_opt,
+                                                                    sim,
+                                                                    sy,
+                                                                    parameter_mapping,
+                                                                    x_ids,
+                                                                    amici_model,
+                                                                    snllh,
+                                                                    sigma)
+            else:
+                print("Wrong choice of inner optimizer")
+                breakpoint()
+            
+    
 
         return {FVAL: nllh,
                 GRAD: snllh,

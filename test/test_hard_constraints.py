@@ -41,6 +41,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
    #                       n_starts=2, engine=engine)
 
     problem.objective.calculator.inner_solver = OptimalScalingInnerSolver(options={'method': 'reduced',
+                                                                                   'InnerOptimizer': 'SLSQP',
                                                                                    'reparameterized': False,
                                                                                    'intervalConstraints': 'max',
                                                                                    'minGap': min_gap,
@@ -61,7 +62,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
 def get_optimizer(optimizer_name):
     """Return pyPESTO optimizer"""
     opt_all = {'L-BFGS-B': pypesto.optimize.ScipyOptimizer(method='L-BFGS-B',
-                                                           options={'disp': True, 'ftol': 1e-8, 'gtol': 1e-10}),
+                                                           options={'disp': True, 'ftol': 1e-1, 'gtol': 1e-2}),
                'SLSQP': pypesto.optimize.ScipyOptimizer(method='SLSQP', options={'disp': True, 'ftol': 1e-8}),
                'ipopt': pypesto.optimize.IpoptOptimizer(
                    options={'disp': 5, 'maxiter': 200, 'accept_after_max_steps': 20}),
@@ -99,8 +100,8 @@ def main():
    # petab_problem = petab.Problem.from_yaml(
    # '/home/zebo/Documents/Basis_1_supp/models/Rahman_MBS2016/Rahman_MBS2016.yaml')
 
-    # petab_problem = petab.Problem.from_yaml(
-    # '/home/zebo/Documents/Basis_1_supp/models/Fiedler_BMC2016/Fiedler_BMC2016.yaml')
+   # petab_problem = petab.Problem.from_yaml(
+   # '/home/zebo/Documents/Basis_1_supp/models/Fiedler_BMC2016/Fiedler_BMC2016.yaml')
 
     #petab_problem = petab.Problem.from_yaml(
     #'/home/zebo/Documents/Basis_1_supp/models/Raia_CancerResearch2011OptimalScaling/Raia_CancerResearch2011OptimalScaling.yaml')
@@ -112,8 +113,8 @@ def main():
     optimizer = get_optimizer('L-BFGS-B')
     results = run_optimization(importer, 
                                optimizer, 
-                               history_name =f'histories/Raf_histories/' + f'sigma_test/history_Raf_' + '_{id}.csv', 
-                               num_starts=2, 
+                               history_name =f'histories/Raf_histories/' + f'least_squares_test/history_Raf_' + '_{id}.csv', 
+                               num_starts=5, 
                                min_gap=1e-16)
 
 
@@ -122,14 +123,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/Raf_sigma_waterfall.png")
+    plt.savefig("plots/Raf_least_squares_test_waterfall.png")
 
     pypesto.visualize.parameters([results],
                                  parameter_indices = [2, 3],
                                  size=(15,12), 
                                  legends=['Numerical spline'],
                                  balance_alpha=True)
-    plt.savefig("plots/Raf_sigma_parameters.png")
+    plt.savefig("plots/Raf_least_squares_test_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots
