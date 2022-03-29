@@ -77,6 +77,15 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         amici_solver.setSensitivityOrder(sensi_order)
         # fill in boring values
         x_dct = copy.deepcopy(x_dct)
+
+        # x_dct['Epo_degradation_BaF3'] = -1.568917588
+        # x_dct['k_exp_hetero'] = -5
+        # x_dct['k_exp_homo'] = -2.209698782
+        # x_dct['k_imp_hetero'] = -1.786006548
+        # x_dct['k_imp_homo'] = 4.990114009
+        # x_dct['k_phos'] = 4.197735489
+
+
         # x_dct['K_1'] = -4.999994697
         # x_dct['K_2'] = 0.179327683
         # x_dct['K_3'] = -0.01751816
@@ -89,6 +98,27 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         # x_dct['k6'] = 0.557215773
         # x_dct['tau1'] = -0.614711949
         # x_dct['tau2'] = -1.674875963
+        
+        # x_dct['CD274mRNA_production'] = -1.673482804
+        # x_dct['DecoyR_binding'] = -2.414422068
+        # x_dct['JAK2_p_inhibition'] = -1.10712659
+        # x_dct['JAK2_phosphorylation'] = 0.007411355
+        # x_dct['Kon_IL13Rec'] = -2.642419383
+        # x_dct['Rec_intern'] = -0.463278373
+        # x_dct['Rec_phosphorylation'] = 2.99999992
+        # x_dct['Rec_recycle'] = -2.678246463
+        # x_dct['SOCS3_accumulation'] = 2.654924984
+        # x_dct['SOCS3_degradation'] = -1.362708216
+        # x_dct['SOCS3_translation'] = 1.196416317
+        # x_dct['SOCS3mRNA_production'] = -0.843537117
+        # x_dct['STAT5_phosphorylation'] = -1.710364794
+        # x_dct['init_Rec_i'] = 2.371175949
+        # x_dct['pJAK2_dephosphorylation'] = -3.754748951
+        # x_dct['pRec_degradation'] = -0.678662642
+        # x_dct['pRec_intern'] = -0.232642597
+        # x_dct['pSTAT5_dephosphorylation'] = -3.560932197
+
+
         #print(x_dct)
         #breakpoint()
         
@@ -118,7 +148,11 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             return get_error_output(amici_model, edatas, rdatas, sensi_order, mode, dim)
 
         sim = [rdata['y'] for rdata in rdatas]
-        
+        #print(sim)
+        #Sometimes some simulations are very small negative numbers, so:
+        for i in range(len(sim)):
+            sim[i]=sim[i].clip(min=0)
+
         sigma = [rdata['sigmay'] for rdata in rdatas]
 
         # compute optimal inner parameters
@@ -126,13 +160,13 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         x_inner_opt = self.inner_solver.solve(
             self.inner_problem, sim, sigma, scaled=True)
 
-        if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
-            nllh = self.inner_solver.calculate_obj_function(x_inner_opt)
-        elif(self.inner_solver.options['InnerOptimizer']=='LeastSquares'):
-            nllh= self.inner_solver.ls_calculate_obj_function(x_inner_opt)
-        else:
-            print("Wrong choice of inner optimizer")
-            breakpoint()
+        #if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
+        nllh = self.inner_solver.calculate_obj_function(x_inner_opt)
+        # elif(self.inner_solver.options['InnerOptimizer']=='LeastSquares'):
+        #     nllh= self.inner_solver.ls_calculate_obj_function(x_inner_opt)
+        # else:
+        #     print("Wrong choice of inner optimizer")
+        #     breakpoint()
 
         # if sensi_order == 0:
         #     dim = len(x_ids)
@@ -178,8 +212,8 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             sy = [rdata['sy'] for rdata in rdatas]
             
 
-            if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
-                snllh = self.inner_solver.calculate_gradients(self.inner_problem,
+            #if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
+            snllh = self.inner_solver.calculate_gradients(self.inner_problem,
                                                               x_inner_opt,
                                                               sim,
                                                               sy,
@@ -188,19 +222,19 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
                                                               amici_model,
                                                               snllh,
                                                               sigma)
-            elif(self.inner_solver.options['InnerOptimizer']=='LeastSquares'):
-                snllh = self.inner_solver.ls_calculate_gradients(self.inner_problem,
-                                                                    x_inner_opt,
-                                                                    sim,
-                                                                    sy,
-                                                                    parameter_mapping,
-                                                                    x_ids,
-                                                                    amici_model,
-                                                                    snllh,
-                                                                    sigma)
-            else:
-                print("Wrong choice of inner optimizer")
-                breakpoint()
+            # elif(self.inner_solver.options['InnerOptimizer']=='LeastSquares'):
+            #     snllh = self.inner_solver.ls_calculate_gradients(self.inner_problem,
+            #                                                         x_inner_opt,
+            #                                                         sim,
+            #                                                         sy,
+            #                                                         parameter_mapping,
+            #                                                         x_ids,
+            #                                                         amici_model,
+            #                                                         snllh,
+            #                                                         sigma)
+            # else:
+            #     print("Wrong choice of inner optimizer")
+            #     breakpoint()
             
     
 

@@ -22,14 +22,11 @@ import pandas as pd
 import faulthandler
 faulthandler.enable()
 
-from pypesto.hierarchical.optimal_scaling_solver import OptimalScalingInnerSolver
-from pypesto.hierarchical.problem import InnerProblem
-
 def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
     """Run optimization"""
     pypesto.logging.log_to_console(logging.INFO)
-    
-    objective = importer.create_objective(qualitative=True, guess_steadystate=False)
+
+    objective = importer.create_objective()
 
     problem = importer.create_problem(objective)
 
@@ -37,23 +34,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
 
     engine = pypesto.engine.SingleCoreEngine()
 
-    # do the optimization
-   # result = pypesto.optimize.minimize(problem=problem, optimizer=optimizer,
-   #                       n_starts=2, engine=engine)
-
-    problem.objective.calculator.inner_solver = OptimalScalingInnerSolver(options={'method': 'reduced',
-                                                                                   'InnerOptimizer': 'SLSQP',
-                                                                                   'reparameterized': False,
-                                                                                   'intervalConstraints': 'max',
-                                                                                   'minGap': min_gap,
-                                                                                   'numberofInnerParams': [3, 13, 7, 7, 6, 9, 13, 11],
-                                                                                   'deltac': [1, 1, 0.25, 40, 200, 0.3, 0.17, 12]})
     print("Zavrsio sam ovo")
-    nominal=np.asarray([-1.5689175884, -4.9997048936, -2.20969878170002, -1.78600654750001, 4.9901140088, 4.1977354885, 0.693, 0.107])
-    nominal = np.random.uniform(low=-5, high=5, size=8)
-    parameters_grad_check = np.block([nominal, np.random.uniform(low=1, high=1, size=48)])
-    objective.check_grad_multi_eps(parameters_grad_check ).to_csv('grad_check.csv')
-    breakpoint()
     history_options = pypesto.HistoryOptions(trace_record=True, storage_file=history_name)
     #np.random.seed(num_starts)
     
@@ -68,7 +49,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
 def get_optimizer(optimizer_name):
     """Return pyPESTO optimizer"""
     opt_all = {'L-BFGS-B': pypesto.optimize.ScipyOptimizer(method='L-BFGS-B',
-                                                           options={'disp': True, 'ftol': 1e-5, 'gtol': 1e-9}),
+                                                           options={'disp': True, 'ftol': 1e-8, 'gtol': 1e-10}),
                'SLSQP': pypesto.optimize.ScipyOptimizer(method='SLSQP', options={'disp': True, 'ftol': 1e-8}),
                'ipopt': pypesto.optimize.IpoptOptimizer(
                    options={'disp': 5, 'maxiter': 200, 'accept_after_max_steps': 20}),
@@ -81,47 +62,18 @@ def main():
     """Napisi opis..."""
 
     petab_problem = petab.Problem.from_yaml(
-    '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml')
+    '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
+
+    # petab_problem = petab.Problem.from_yaml(
+    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Rahman_MBS2016/Rahman_MBS2016.yaml')
+
+    # petab_problem = petab.Problem.from_yaml(
+    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Raia_CancerResearch2011_quantitative_zebo/Raia_CancerResearch2011OptimalScaling.yaml')
+
     
-    #petab_problem = petab.Problem.from_yaml(
-    #'/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_quantitative/Boehm_JProteomeRes2014OptimalScaling.yaml')
-
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Boehm_JProteomeRes2014OptimalScaling_HardConstraints/Boehm_JProteomeRes2014OptimalScaling_HardConstraints.yaml')
-
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
-
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
-    
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_tanh/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
-    
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/GitHub/examples/Raf_Mitra_NatCom2018OptimalScaling_3CatQual_hard_constraints/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml')
-
-   # petab.flatten_timepoint_specific_output_overrides(petab_problem) #this is useless for us, don't use it, comment out the error
-
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/Basis_1_supp/models/Rahman_MBS2016/Rahman_MBS2016.yaml')
-
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/Basis_1_supp/models/Fiedler_BMC2016/Fiedler_BMC2016.yaml')
-
-   # petab_problem = petab.Problem.from_yaml(
-   # '/home/zebo/Documents/Basis_1_supp/models/Raia_CancerResearch2011OptimalScaling/Raia_CancerResearch2011OptimalScaling.yaml')
-        
-    
-
-
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('L-BFGS-B')
-    results = run_optimization(importer, 
-                               optimizer, 
-                               history_name =f'histories/Boehm_histories/' + f'test/history_Boehm_' + '_{id}.csv', 
-                               num_starts=200, 
-                               min_gap=1e-16)
+    results = run_optimization(importer, optimizer, history_name =f'histories/Boehm_histories/' + f'Benchmark_models/history_Boehm_' + '_{id}.csv', num_starts=50, min_gap=1e-16)
 
 
     pypesto.visualize.waterfall([results],
@@ -129,15 +81,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/Boehm_test_waterfall.png")
+    plt.savefig("plots/Boehm_quantitative_bench_waterfall.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [0, 1, 2, 3, 4, 5],
+                                 parameter_indices = [0,1,2,3,4,5],
                                  size=(15,12), 
-                                 legends=['Numerical spline'],
+                                 legends=['Quantitative'],
                                  balance_alpha=True)
-    plt.savefig("plots/Boehm_test_parameters.png")
-
+    plt.savefig("plots/Boehm_quantitative_bench_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots

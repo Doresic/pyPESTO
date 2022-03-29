@@ -91,8 +91,10 @@ def minimize(
     startpoints = assign_startpoints(
         n_starts=n_starts, startpoint_method=startpoint_method,
         problem=problem, startpoint_resample=options.startpoint_resample)
-    #print(startpoints)
-    #breakpoint()
+    # with open('/home/zebo/Desktop/startpoints.txt', 'w') as file:
+    #     file.write(str(startpoints))
+    # print(str(startpoints))
+    # breakpoint()
     if ids is None:
         ids = [str(j) for j in range(n_starts)]
     if len(ids) != n_starts:
