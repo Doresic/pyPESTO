@@ -149,12 +149,19 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
 
         sim = [rdata['y'] for rdata in rdatas]
         #print(sim)
+        # negative_flag = 0
+        # for i in range(len(sim[0])):
+        #     for j in range(len(sim[0][i])):
+        #         if(sim[0][i][j]<0):
+        #             print("Negative Element: ", sim[0][i][j])
+        #             negative_flag = 1
+        #if(negative_flag == 1): breakpoint()
         #Sometimes some simulations are very small negative numbers, so:
         for i in range(len(sim)):
             sim[i]=sim[i].clip(min=0)
-
         sigma = [rdata['sigmay'] for rdata in rdatas]
-
+        #print(sim)
+        #breakpoint()
         # compute optimal inner parameters
 
         x_inner_opt = self.inner_solver.solve(
@@ -213,7 +220,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             
 
             #if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
-            snllh = self.inner_solver.calculate_gradients(self.inner_problem,
+            snllh = self.inner_solver.calculate_gradients_reformulated(self.inner_problem,
                                                               x_inner_opt,
                                                               sim,
                                                               sy,
