@@ -6,6 +6,114 @@ Release notes
 ..........
 
 
+0.2.11 (2022-01-11)
+-------------------
+
+* Model selection (#397):
+    * Automated model selection with forward/backward/brute force methods and
+      AIC/AICc/BIC criteria
+    * Much functionality (methods, criteria, model space, problem
+      specification) via `PEtab Select <https://github.com/PEtab-dev/petab_select>`
+    * Plotting routines
+    * `Example notebook <https://github.com/ICB-DCM/pyPESTO/blob/main/doc/example/model_selection.ipynb>`
+    * Model calibration postprocessors
+    * Select first model that improves on predecessor model
+    * Use previous MLE as startpoint
+    * Tests
+
+* AMICI:
+    * Maintain model settings when pickling for multiprocessing (#747)
+
+* General:
+    * Apply nbqa black and isort to auto-format all notebooks via
+      pre-commit hook (#794)
+    * Apply black formatting via pre-commit hook (#796)
+    * Require Python >= 3.8 (#795)
+    * Fix various warnings (#778)
+    * Minor fixes (#792)
+
+
+0.2.10 (2022-01-06)
+-------------------
+
+* AMICI:
+    * Make AMICI objective report only what is being asked for (#777)
+
+* Optimization:
+    * (Breaking) Refactor startpoint generation with clear assignments;
+      allow checking gradients (#769)
+    * (Breaking) Prioritize history vs optimize result (#775)
+
+* Storage:
+    * Fix loading empty history and result generation from multiple
+      histories (#764)
+    * Fix autosave function for single-core (#770)
+    * Fix potential autosave overwriting and typehints (#772)
+    * Allow loading of partial results from history file (#783)
+
+* CI:
+    * Compile AMICI models without gradients in test suite (#774)
+
+* General:
+    * (Breaking) Create result sub-module; shift storage+result related
+      functionality (#784)
+    * Fix finite difference constant mode (#786)
+    * Refactor ensemble module (#788)
+    * Introduce general C constants file (#788)
+    * Apply isort for automatic imports formatting (#785)
+    * Reduce run log output (#789)
+    * Various minor fixes (#765, #766, #768, #771)
+
+
+0.2.9 (2021-11-03)
+------------------
+
+* General:
+    * Automatically save results (#749)
+    * Update all docstrings to numpy standard (#750)
+    * Add Google Colab and nbviewer links to all notebooks for online
+      execution (#758)
+    * Option to not save hess and sres in result (#760)
+    * Set minimum supported python version to 3.7 (#755)
+
+* Visualization:
+    * Parameterize start index in optimized model fit (#744)
+
+
+0.2.8 (2021-10-28)
+------------------
+
+* PEtab:
+    * Use correct measurement column name in `rdatas_to_simulation_df` (#721)
+    * Visualize optimized model fit via PEtab problem (#725)
+    * Un-ignore observable scaling tests (#742)
+    * New function to plot model trajectory with custom time points (#739)
+
+* Optimization:
+    * OOD Refactor startpoint generation (#732)
+    * Update to fides 0.6.0 (#733)
+    * Correctly report FVAL vs CHI2 values in fides (#741)
+
+* Ensemble:
+    * Option for using weighted ensemble means (#702)
+    * Default names and bounds for `Ensemble.from_sample` (#730)
+
+* Storage:
+    * Load optimization result from HDF5 history (#726)
+
+* General:
+    * Enable use of priors with least squares optimizers (#745)
+    * Add temporary CITATION.cff file (#734)
+    * Regular scheduled CI runs (#754)
+    * Allow to not copy objective in problem (#756)
+
+* Fixes:
+    * Fix non-exported visualization in notebook (#729)
+    * Mark some more tests as flaky (#704)
+    * Fix minor data type and OOD issues in parameter and waterfall plots
+      (#731)
+
+
 0.2.7 (2021-07-30)
 ------------------
 

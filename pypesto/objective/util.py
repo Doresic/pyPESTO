@@ -1,20 +1,25 @@
-import numpy as np
+"""Objective utilities."""
+
 from typing import Union
+
+import numpy as np
 
 
 def _check_none(fun):
-    """Wrapper: Return None if any input argument is None."""
+    """Return None if any input argument is None; Wrapper function."""
+
     def checked_fun(*args, **kwargs):
         if any(x is None for x in [*args, *(kwargs.values())]):
             return None
         return fun(*args, **kwargs)
+
     return checked_fun
 
 
 @_check_none
 def res_to_chi2(res: np.ndarray) -> Union[float, None]:
     """Translate residuals to chi2 values, `chi2 = sum(res**2)`."""
-    return np.dot(res, res)
+    return float(np.dot(res, res))
 
 
 @_check_none
@@ -51,11 +56,12 @@ def schi2_to_grad(schi2: np.ndarray) -> np.ndarray:
 
 @_check_none
 def sres_to_grad(res: np.ndarray, sres: np.ndarray):
-    """Translate residual sensitivities to function value gradien, assuming
-    `fval = 0.5*sum(res**2)`.
+    """Translate residual sensitivities to function value gradient.
+
+    Assumes `fval = 0.5*sum(res**2)`.
 
     See also :func:`chi2_to_fval`.
-     """
+    """
     return schi2_to_grad(sres_to_schi2(res, sres))
 
 
