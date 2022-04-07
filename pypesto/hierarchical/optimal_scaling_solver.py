@@ -7,6 +7,9 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
+import tailer
+import io
+
 from ..optimize import Optimizer
 from .optimal_scaling_problem import OptimalScalingProblem
 from .parameter import InnerParameter
@@ -75,19 +78,6 @@ class OptimalScalingInnerSolver(InnerSolver):
                 surrogate_opt_results = spline_optimize_surrogate(gr, sim, quantitative_data, simulation_indices, self.options, sigma_for_group)
                 optimal_surrogates.append(surrogate_opt_results)
             return optimal_surrogates  
-        
-        elif(self.options['InnerOptimizer']=='LeastSquares'):
-            optimal_surrogates_ls = []
-
-            simulation_indices = problem.simulation_indices
-            for gr in problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING):
-                sigma_for_group = get_sigma_for_group(gr, sigma, simulation_indices)
-                quantitative_data = problem.get_quantitative_data_for_group(gr)
-                quantitative_data = quantitative_data.sort_values(by=['simulationConditionId', 'time'])
-
-                surrogate_opt_results = ls_spline_optimize_surrogate(gr, sim, quantitative_data, simulation_indices, self.options, sigma_for_group)
-                optimal_surrogates_ls.append(surrogate_opt_results)
-            return optimal_surrogates_ls
         else:
             print("Wrong choice of inner optimizer")
             breakpoint()
@@ -133,155 +123,6 @@ class OptimalScalingInnerSolver(InnerSolver):
         print(obj)
         #print("I calculated the obj function with optimized inner pars")
         return obj
-
-    def calculate_gradients(self,
-                            problem: OptimalScalingProblem,
-                            x_inner_opt,
-                            sim,
-                            sy,
-                            parameter_mapping,
-                            par_opt_ids,
-                            amici_model,
-                            snllh,
-                            sigma_full):
-        #breakpoint()
-        simulation_indices = problem.simulation_indices
-        condition_map_sim_var = parameter_mapping[0].map_sim_var
-        #print(condition_map_sim_var)
-        par_sim_ids = list(amici_model.getParameterIds())
-        par_sim_idx=-1 # DOES THIS WOrK IF THE Pars are not connected order 
-        #print(par_sim_ids)
-        # TODO: Doesn't work with condition specific parameters
-        for par_sim, par_opt in condition_map_sim_var.items():
-            if not isinstance(par_opt, str):
-                continue
-            if par_opt.startswith('optimalScaling_'):
-                continue
-            #par_sim_idx = par_sim_ids.index(par_sim) ZEBO REPLACE
-            par_sim_idx += 1
-            inner_par_idx = 0
-            par_opt_idx = par_opt_ids.index(par_opt)
-    
-            grad = 0.0
-            #print(par_sim, par_opt)
-            for idx, gr in enumerate(problem.get_groups_for_xs(InnerParameter.OPTIMALSCALING)):
-                xi = np.asarray(x_inner_opt[inner_par_idx]['x'])
-                # s = np.asarray(x_inner_opt[inner_par_idx]['x'])
-                # xi = np.zeros(len(s))
-                # for i in range(len(s)):
-                #     for j in range(i+1):
-                #         xi[i]+=s[j]
-
-                sim_all = get_sim_all_for_quantitative(gr, sim, simulation_indices)
-                sigma = get_sigma_for_group(gr, sigma_full, simulation_indices)
-                #print(xi)
-                inner_par_idx += 1
-
-                
-                
-                sy_all = get_sy_all_for_quantitative(gr, sy, par_sim_idx, simulation_indices)
-                quantitative_data = problem.get_quantitative_data_for_group(gr)
-                quantitative_data = quantitative_data.sort_values(by=['simulationConditionId', 'time'])
-
-                # with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
-                #     print(quantitative_data)
-                measurements = quantitative_data.measurement.values
-                monotonicity_measure=get_monotonicity_measure(quantitative_data, sim_all)
-                
-                #print("xi for group ", gr, ": \n", xi)
-                #print(measurements)
-                #print(sim_all)
-                #breakpoint()
-                # print(sy_all)
-
-                #N = self.options['numberofInnerParams'][int(gr)-1]
-                #delta_c = self.options['deltac'][int(gr)-1]
-                N, delta_c, c_1 = get_spline_bases(sim_all)
-
-                with open('/home/zebo/Desktop/numerical_spline_xi.csv', 'a', newline='') as file:
-                    writer = csv.writer(file)
-                    writer.writerow(np.block([np.asarray([N, delta_c, c_1, monotonicity_measure]), xi, np.asarray([-1, sim_all[0], sim_all[1], sim_all[5], sim_all[7]])]))
-
-                C = np.diag(-np.ones(N), -1) \
-                    + np.diag(np.ones(N +1))
-                C = C[:-1, :-1]
-                C=-C
-
-                #w = np.sum(np.abs(sim_all)) + 1e-8
-                #w_dot = -1 * np.sum(sy_all) / (w**2)
-                import time
-
-                Jacobian, rhs = spline_get_Jacobian(gr, sim_all, measurements, sigma)
-                start = time.time()
-                mu = spline_get_mu(Jacobian, rhs, xi, C)
-                end = time.time()
-                # print("mu time: ", end-start)
-                # for i in range(len(xi)):
-                #     print(xi[i])
-                # for i in range(1, len(xi)):
-                #     if(mu[i]<0 and xi[i]==xi[i-1]): 
-                #         print("MU IS NEGATIVE")
-                #         print(mu[i], xi[i-1], xi[i])
-                #     if(mu[i]>1e-6 and xi[i]-xi[i-1]>1e-6):
-                #         print("MU SHOULD BE 0?")
-                #         print(mu[i], xi[i-1], xi[i])   
-                # breakpoint()
-                
-                #Setting mu values to 0 for inactive constraints:
-                if(xi[0]>1e-6): mu[0]=0 
-                for i in range(1, len(xi)):
-                    if(xi[i]-xi[i-1]>1e-6): mu[i]=0
-                #print(mu)
-                xi_dot = spline_get_dxi_dtheta(gr, sim_all, sy_all, measurements, xi, C, mu, sigma, self.options)
-                
-                
-                # print(C)
-                # print(Jacobian, rhs)
-                # print(mu)
-                # print(xi_dot)
-                # breakpoint()
-                #Let's calculate the gradient now:
-                df_dxi = np.zeros(N)
-                df_dyk = 0
-                res = 0
-                for y_k, z_k, y_dot_k, sigma_k in \
-                        zip(sim_all, measurements, sy_all, sigma):
-                    n=math.ceil((y_k - c_1)/ delta_c) + 1
-                    if(n==0):n=1
-                    if(n>N): n=N+1
-                    i=n-1
-                    #calculate df_dxi
-                    if(n==1):
-                        df_dxi[i] += -(1/sigma_k**2)* (z_k - y_k *xi[i]/delta_c) * y_k / delta_c
-                    elif(n>1):
-                        df_dxi[i] += -(1/sigma_k**2)* (z_k - (y_k - c_1 - (n-2)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (y_k - c_1 - (n-2)*delta_c) / delta_c
-                        df_dxi[i-1] += -(1/sigma_k**2)* (z_k - (y_k - c_1 - (n-2)*delta_c)*(xi[i] - xi[i-1])/delta_c - xi[i-1]) * (c_1 + (n-1)*delta_c - y_k) / delta_c
-                    if(n==N+1):
-                        print("Error, n==N+1")
-                        breakpoint()
-                        #df_dxi[i-1] += -(1/sigma_k**2)* (z_k - xi[i-1])
-                    #calculate df_dyk (without w_dot term)
-                    if(n>1):
-                        df_dyk+= -(1/sigma_k**2)* (z_k - (y_k - c_1 - delta_c * (n-2))*(xi[i] - xi[i-1])/delta_c -xi[i-1]) * (xi[i] - xi[i-1]) * y_dot_k /delta_c
-                    elif(n==1):
-                        df_dyk+= -(1/sigma_k**2)* (z_k - y_k*xi[i]/c_1) * xi[i] * y_dot_k /c_1
-                    #calculate res for the w_dot term DONT NEED NOW, WILL NEED FOr OPTIMIZED SIGMA
-                    # if(n < N+1 and n >1):
-                    #     res+= (z_k - (y_k - c_1 - delta_c * (n-2))*(xi[i] - xi[i-1])/delta_c -xi[i-1])**2
-                    # elif(n==N+1):
-                    #     res+= (z_k - xi[i-1])**2
-                    # elif(n==1):
-                    #     res+= (z_k - y_k*xi[i]/c_1)**2
-                
-                #df_dyk += res
-                #print("Group ", gr, ": ", df_dyk, df_dxi.dot(xi_dot))
-                grad += df_dxi.dot(xi_dot) + df_dyk
-            # print("End gradient: ", grad)
-            # breakpoint()
-            snllh[par_opt_idx] = grad
-        
-        #print("I calculated the grad with optimized inner pars")
-        return snllh
 
     def calculate_gradients_reformulated(self,
                             problem: OptimalScalingProblem,
@@ -341,7 +182,7 @@ class OptimalScalingInnerSolver(InnerSolver):
                         xi[i]+=s[j]
                 with open('/home/zebo/Desktop/numerical_spline_xi.csv', 'a', newline='') as file:
                     writer = csv.writer(file)
-                    writer.writerow(np.block([np.asarray([N, delta_c, c[0], monotonicity_measure]), xi, np.asarray([-1, sim_all[0], sim_all[1], sim_all[5], sim_all[7]])]))
+                    writer.writerow(np.block([np.asarray([gr, N, delta_c, c[0], monotonicity_measure]), xi, np.asarray([-1, sim_all[0], sim_all[1], sim_all[5], sim_all[7]])]))
 
                 
                 C = np.diag(-np.ones(N))
@@ -411,7 +252,7 @@ def spline_optimize_surrogate(gr: float,
                               sigma: np.ndarray):
     """Run optimization for inner problem"""
 
-    from scipy.optimize import minimize
+    from scipy.optimize import minimize, least_squares
 
     sim_all = get_sim_all_for_quantitative(gr, sim, simulation_indices)
 
@@ -426,12 +267,13 @@ def spline_optimize_surrogate(gr: float,
         return spline_get_Jacobian_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n)
     
     inner_options = \
-        get_spline_inner_options(gr, measurements, options, sim_all)
-
-
-    results = minimize(obj_surr_reformulated, jac = obj_jac_reformulated, **inner_options)
-    results['x'] = results['x'].clip(min=0)
+        get_spline_inner_options(measurements, gr, N)
     
+    #results = minimize(obj_surr_reformulated, jac = obj_jac_reformulated, **inner_options)
+    
+    results_ls = least_squares(obj_surr_reformulated, inner_options['x0'], jac=obj_jac_reformulated, bounds=(0,np.inf))
+    
+    results_ls['x'] = results_ls['x'].clip(min=0)
     
     #gradient check:
     # import scipy
@@ -443,46 +285,6 @@ def spline_optimize_surrogate(gr: float,
     #     print("Error for group ", gr, ": ", gr_check)
     #     print("Inner Grad is not good!!!!!")
         # breakpoint()
-    return results
-
-def ls_spline_optimize_surrogate(gr: float,
-                                 sim: List[np.ndarray],
-                                 quantitative_data: pd.DataFrame,
-                                 simulation_indices: List,
-                                 options: Dict,
-                                 sigma: np.ndarray):
-    """Run optimization for inner problem using least squares"""
-
-    from scipy.optimize import least_squares
-   
-    sim_all = get_sim_all_for_quantitative(gr, sim, simulation_indices)
-
-    measurements = quantitative_data.measurement.values
-
-    N, delta_c, c, n = get_spline_bases(sim_all)
-
-    inner_options = \
-        get_spline_inner_options(gr, measurements, options, sim_all)
-    
-    #Least squares try:
-    def obj_surr_reformulated(x):
-        return obj_spline_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n)
-
-    def obj_jac_reformulated(x):
-        return spline_get_Jacobian_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n)
-    
-    x0_s = np.zeros(len(inner_options['x0']))
-    x0_s[0] = inner_options['x0'][0]
-    for j in range(1,len(inner_options['x0'])):
-        x0_s[j] = inner_options['x0'][j]-inner_options['x0'][j-1]
-
-    results_ls = least_squares(obj_surr_reformulated, x0_s, jac=obj_jac_reformulated, bounds=(0,np.inf))
-    #print("grupa :", gr)
-    # print("Error for group ", gr, ": ", scipy.optimize.check_grad(obj_surr, obj_jac, results['x']))
-    # breakpoint()
-    # print(results_ls['success'])
-    # print(results_ls['status'])
-    # print(results_ls['cost'])
     return results_ls
 
 def obj_spline(gr: float,
@@ -552,15 +354,23 @@ def obj_spline_reformulated(optimal_s: np.ndarray,
         obj = obj/2
         return obj
 
-def get_spline_inner_options(gr: float,
-                             measurements: np.ndarray,
-                             options: Dict,
-                             sim_all: np.ndarray) -> Dict:
+def get_spline_inner_options(measurements: np.ndarray,
+                             gr: float,
+                             N: int) -> Dict:
 
     """Return default options for scipy optimizer"""
-
-    from scipy.optimize import Bounds
-    N , delta_c, c, n = get_spline_bases(sim_all)
+    # try:
+    #     with open('/home/zebo/Desktop/numerical_spline_xi.csv') as file:
+    #         last_lines = tailer.tail(file, 4)
+    #     last_inner_runs = pd.read_csv(io.StringIO('\n'.join(last_lines)), 
+    #                             names=['gr', 'N', 'delta_c', 'c_1', 'inversions', 'xi_1', 'xi_2', 'xi_3', 'xi_4', 'xi_5', 'xi_6', 'xi_7', 'xi_8', 'xi_9', 'xi_10', 'xi_11', 'xi_12', 'xi_13', 'Sim_1', 'Sim_2', 'Sim_3', 'Sim_4', 'Sim_5', 'Sim_6', 'Sim_7', 'Sim_8', 'Sim_9', 'Sim_10', 'Sim_11'])
+        
+    #     last_inner_runs = last_inner_runs[last_inner_runs['gr']==gr]
+        
+    #     x0 = np.zeros(int(N))
+    #     for k in range(1, int(N)+1):
+    #         x0[k-1] = last_inner_runs.iloc[[-1]]['xi_' + str(k)].values[0]
+    # except:
     
     min_all=max_all=measurements[0]
     for m in measurements:
@@ -568,18 +378,13 @@ def get_spline_inner_options(gr: float,
         if(m<min_all): min_all = m    
     range_all = max_all - min_all
 
-    x0 = np.linspace(np.max([min_all - 0.3*range_all, 0]), 
-                     max_all + 0.3*range_all, 
-                     N+1)[1:]
+    par_minimum = range_all/(2*N)
+
+    x0 = np.full(N, (max_all + 0.3*range_all-np.max([min_all - 0.3*range_all, 0]))/(N-1))
+    x0[0] = np.max([min_all - 0.3*range_all, 0])
     
-    x0_s = np.zeros(len(x0))
-    x0_s[0] = x0[0]
-    for j in range(1,len(x0)):
-        x0_s[j] = x0[j]-x0[j-1]
-
-
     #constraints = get_monotonicity_constraints(N, len(measurements), max_all, min_all)
-    inner_options = {'x0': x0_s, 'method': 'SLSQP',
+    inner_options = {'x0': x0, 'method': 'SLSQP',
                      'options': {'maxiter': 2000, 'ftol': 1e-10, 'disp': True},
                      'constraints': {'type': 'ineq', 'fun': lambda x: x}}
 
@@ -1486,7 +1291,7 @@ def get_spline_bases_gradient(sim_all, sy_all):
     if(sim_all[max_idx] - sim_all[min_idx]<1e-6):
         N = math.ceil(K/2)
         delta_c_dot=0
-        c_dot=np.zeros(N)
+        c_dot=np.full(N, (sy_all[max_idx] - sy_all[min_idx])/2)
     else:
         N = math.ceil(K/2)
         delta_c_dot = (sy_all[max_idx] - sy_all[min_idx])/(N-1)

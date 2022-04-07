@@ -25,9 +25,9 @@ faulthandler.enable()
 def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
     """Run optimization"""
     pypesto.logging.log_to_console(logging.INFO)
-
+    
     objective = importer.create_objective()
-
+    
     problem = importer.create_problem(objective)
 
     option = pypesto.optimize.OptimizeOptions(allow_failed_starts=True)
@@ -65,15 +65,19 @@ def main():
     '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml')
 
     # petab_problem = petab.Problem.from_yaml(
-    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Rahman_MBS2016/Rahman_MBS2016.yaml')
-
+    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Raia_CancerResearch2011/Raia_CancerResearch2011.yaml')
+    
     # petab_problem = petab.Problem.from_yaml(
-    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Raia_CancerResearch2011_quantitative_zebo/Raia_CancerResearch2011OptimalScaling.yaml')
+    # '/home/zebo/Documents/Benchmark-Models-PEtab-master/Benchmark-Models/Rahman_MBS2016/Rahman_MBS2016.yaml')
 
     
     importer = pypesto.petab.PetabImporter(petab_problem)
     optimizer = get_optimizer('L-BFGS-B')
-    results = run_optimization(importer, optimizer, history_name =f'histories/Boehm_histories/' + f'Benchmark_models/history_Boehm_' + '_{id}.csv', num_starts=50, min_gap=1e-16)
+    results = run_optimization(importer,
+                               optimizer,
+                               history_name =f'histories/Boehm_histories/' + f'Benchmark_models_test/history_Boehm_' + '_{id}.csv', 
+                               num_starts=2,
+                               min_gap=1e-16)
 
 
     pypesto.visualize.waterfall([results],
@@ -81,14 +85,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/Boehm_quantitative_bench_waterfall.png")
+    plt.savefig("plots/Boehm_test_quantitative_bench_waterfall.png")
 
     pypesto.visualize.parameters([results],
                                  parameter_indices = [0,1,2,3,4,5],
                                  size=(15,12), 
                                  legends=['Quantitative'],
                                  balance_alpha=True)
-    plt.savefig("plots/Boehm_quantitative_bench_parameters.png")
+    plt.savefig("plots/Boehm_test_quantitative_bench_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots
