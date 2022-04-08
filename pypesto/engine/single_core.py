@@ -1,6 +1,4 @@
-"""Engines without parallelization."""
 from typing import List
-
 from tqdm import tqdm
 
 from .base import Engine
@@ -9,9 +7,8 @@ from .task import Task
 
 class SingleCoreEngine(Engine):
     """
-    Dummy engine for sequential execution on one core.
-
-    Note that the objective itself may be multithreaded.
+    Dummy engine for sequential execution on one core. Note that the
+    objective itself may be multithreaded.
     """
 
     def __init__(self):

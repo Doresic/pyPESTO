@@ -1,4 +1,3 @@
-# noqa: D400,D205
 """
 Optimize
 ========
@@ -6,23 +5,20 @@ Optimize
 Multistart optimization with support for various optimizers.
 """
 
-from .load import (
-    fill_result_from_history,
-    optimization_result_from_history,
-    read_result_from_file,
-    read_results_from_file,
-)
-from .optimize import minimize
+from .options import OptimizeOptions
+from .optimize import (
+    minimize)
 from .optimizer import (
-    CmaesOptimizer,
-    DlibOptimizer,
-    FidesOptimizer,
-    IpoptOptimizer,
-    NLoptOptimizer,
     Optimizer,
+    ScipyOptimizer,
+    IpoptOptimizer,
+    DlibOptimizer,
     PyswarmOptimizer,
+    CmaesOptimizer,
     PyswarmsOptimizer,
     ScipyDifferentialEvolutionOptimizer,
-    ScipyOptimizer,
+    NLoptOptimizer,
+    FidesOptimizer,
+    read_result_from_file,
 )
-from .options import OptimizeOptions
+from .result import OptimizerResult

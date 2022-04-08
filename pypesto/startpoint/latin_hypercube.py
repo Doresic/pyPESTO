@@ -1,42 +1,33 @@
-"""Latin hypercube sampling."""
-
 import numpy as np
-
-from .base import CheckedStartpoints
 from .util import rescale
 
 
-def latin_hypercube(
-    n_starts: int,
-    lb: np.ndarray,
-    ub: np.ndarray,
-    smooth: bool = True,
-) -> np.ndarray:
-    """Generate latin hypercube points.
+def latin_hypercube(**kwargs) -> np.ndarray:
+    """
+    Generate latin hypercube points.
 
     Parameters
     ----------
     n_starts:
-        Number of points.
+        number of starting points to be sampled.
     lb:
-        Lower bound.
+        lower bound.
     ub:
-        Upper bound.
+        upper bound.
     smooth:
-        Whether a (uniformly chosen) random starting point within the
+        indicates if a (uniformly chosen) random starting point within the
         hypercube [i/n_starts, (i+1)/n_starts] should be chosen (True) or
-        the midpoint of the interval (False).
-
-    Returns
-    -------
-    xs:
-        Latin hypercube points, shape (n_starts, n_x).
+        the midpoint of the interval (False). Default is True.
     """
+    # extract input
+    n_starts = kwargs['n_starts']
+    lb = kwargs['lb']
+    ub = kwargs['ub']
+    smooth = kwargs.get('smooth', True)
+
     if not np.isfinite(ub).all() or not np.isfinite(lb).all():
-        raise ValueError(
-            "Cannot use latin hypercube startpoint method with non-finite "
-            "boundaries.",
-        )
+        raise ValueError('Cannot use latin hypercube startpoint method with '
+                         'non-finite boundaries.')
 
     # parse
     dim = lb.size
@@ -44,7 +35,7 @@ def latin_hypercube(
     ub = ub.reshape((1, -1))
 
     # sample
-    xs = _latin_hypercube_unit(n_starts, dim, smooth)
+    xs = _latin_hypercube(n_starts, dim, smooth)
 
     # re-scale
     xs = rescale(xs, lb, ub)
@@ -52,18 +43,27 @@ def latin_hypercube(
     return xs
 
 
-def _latin_hypercube_unit(
-    n_starts: int,
-    dim: int,
-    smooth: bool,
+def _latin_hypercube(
+        n_starts: int,
+        dim: int,
+        smooth: bool = True
 ) -> np.ndarray:
-    """Generate simple latin hypercube points in [0, 1].
+    """
+    Generate simple latin hypercube points in [0, 1].
 
-    Parameters are as for `latin_hypercube`.
+    Parameters
+    ----------
 
-    Returns
-    -------
-    xs: Latin hypercube points sampled in [0, 1], shape (n_starts, dim).
+    n_starts:
+        number of starting points to be sampled.
+
+    dim:
+        dimension of the optimization problem.
+
+    smooth:
+        indicates, if a (uniformly chosen) random starting point within the
+        hypercube [i/n_starts, (i+1)/n_starts] should be chosen
+        (`smooth==True`) or the midpoint of the interval (`smoth==False`).
     """
     xs = np.empty((n_starts, dim))
 
@@ -78,49 +78,3 @@ def _latin_hypercube_unit(
     xs /= n_starts
 
     return xs
-
-
-class LatinHypercubeStartpoints(CheckedStartpoints):
-    """Generate latin hypercube-sampled startpoints.
-
-    See e.g. https://en.wikipedia.org/wiki/Latin_hypercube_sampling.
-    """
-
-    def __init__(
-        self,
-        use_guesses: bool = True,
-        check_fval: bool = False,
-        check_grad: bool = False,
-        smooth: bool = True,
-    ):
-        """Initialize.
-
-        Parameters
-        ----------
-        use_guesses, check_fval, check_grad:
-            As in CheckedStartpoints.
-        smooth:
-            Whether a (uniformly chosen) random starting point within the
-            hypercube [i/n_starts, (i+1)/n_starts] should be chosen (True) or
-            the midpoint of the interval (False).
-        """
-        super().__init__(
-            use_guesses=use_guesses,
-            check_fval=check_fval,
-            check_grad=check_grad,
-        )
-        self.smooth: bool = smooth
-
-    def sample(
-        self,
-        n_starts: int,
-        lb: np.ndarray,
-        ub: np.ndarray,
-    ) -> np.ndarray:
-        """Call function."""
-        return latin_hypercube(
-            n_starts=n_starts,
-            lb=lb,
-            ub=ub,
-            smooth=self.smooth,
-        )

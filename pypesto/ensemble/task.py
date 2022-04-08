@@ -1,7 +1,6 @@
 import logging
-from typing import Any, Callable, List
-
 import numpy as np
+from typing import Any, Callable, List
 
 from ..engine import Task
 
@@ -22,10 +21,10 @@ class EnsembleTask(Task):
     """
 
     def __init__(
-        self,
-        method: Callable,
-        vectors: np.ndarray,
-        id: str,
+            self,
+            method: Callable,
+            vectors: np.ndarray,
+            id: str,
     ):
         super().__init__()
         self.method = method
@@ -33,7 +32,6 @@ class EnsembleTask(Task):
         self.id = id
 
     def execute(self) -> List[Any]:
-        """Execute the task."""
         logger.info(f"Executing task {self.id}.")
         results = []
         for index in range(self.vectors.shape[1]):

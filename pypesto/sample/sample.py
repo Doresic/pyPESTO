@@ -1,29 +1,25 @@
 import logging
-from time import process_time
-from typing import List, Union
-
 import numpy as np
+from typing import List, Union
+from time import process_time
 
 from ..problem import Problem
 from ..result import Result
-from ..store import autosave
-from .adaptive_metropolis import AdaptiveMetropolisSampler
 from .sampler import Sampler
-from .util import bound_n_samples_from_env
+from .adaptive_metropolis import AdaptiveMetropolisSampler
 
 logger = logging.getLogger(__name__)
 
 
 def sample(
-    problem: Problem,
-    n_samples: int,
-    sampler: Sampler = None,
-    x0: Union[np.ndarray, List[np.ndarray]] = None,
-    result: Result = None,
-    filename: Union[str, None] = "Auto",
+        problem: Problem,
+        n_samples: int,
+        sampler: Sampler = None,
+        x0: Union[np.ndarray, List[np.ndarray]] = None,
+        result: Result = None
 ) -> Result:
     """
-    Call to do parameter sampling.
+    This is the main function to call to do parameter sampling.
 
     Parameters
     ----------
@@ -42,11 +38,6 @@ def sample(
     result:
         A result to write to. If None provided, one is created from the
         problem.
-    filename:
-        Name of the hdf5 file, where the result will be saved. Default is
-        "Auto", in which case it will automatically generate a file named
-        `year_month_day_sampling_result.hdf5`. Deactivate saving by
-        setting filename to `None`.
 
     Returns
     -------
@@ -57,16 +48,12 @@ def sample(
     if result is None:
         result = Result(problem)
 
-    # number of samples
-    n_samples = bound_n_samples_from_env(n_samples)
-
     # try to find initial parameters
     if x0 is None:
         result.optimize_result.sort()
         if len(result.optimize_result.list) > 0:
             x0 = problem.get_reduced_vector(
-                result.optimize_result.list[0]['x']
-            )
+                result.optimize_result.list[0]['x'])
         # TODO multiple x0 for PT, #269
 
     # set sampler
@@ -80,7 +67,7 @@ def sample(
     t_start = process_time()
     sampler.sample(n_samples=n_samples)
     t_elapsed = process_time() - t_start
-    logger.info("Elapsed time: " + str(t_elapsed))
+    logger.info("Elapsed time: "+str(t_elapsed))
 
     # extract results
     sampler_result = sampler.get_samples()
@@ -90,7 +77,5 @@ def sample(
 
     # record results
     result.sample_result = sampler_result
-
-    autosave(filename=filename, result=result, store_type="sample")
 
     return result

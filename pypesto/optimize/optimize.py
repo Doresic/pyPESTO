@@ -5,35 +5,29 @@ from ..engine import Engine, SingleCoreEngine
 from ..objective import HistoryOptions
 from ..problem import Problem
 from ..result import Result
-from ..startpoint import StartpointMethod, to_startpoint_method, uniform
-from ..store import autosave
+from ..startpoint import assign_startpoints, uniform
 from .optimizer import Optimizer, ScipyOptimizer
 from .options import OptimizeOptions
 from .task import OptimizerTask
-from .util import (
-    bound_n_starts_from_env,
-    postprocess_hdf5_history,
-    preprocess_hdf5_history,
-)
+from .util import check_hdf5_mp, fill_hdf5_file
 
 logger = logging.getLogger(__name__)
 
 
 def minimize(
-    problem: Problem,
-    optimizer: Optimizer = None,
-    n_starts: int = 100,
-    ids: Iterable[str] = None,
-    startpoint_method: Union[StartpointMethod, Callable, bool] = None,
-    result: Result = None,
-    engine: Engine = None,
-    progress_bar: bool = True,
-    options: OptimizeOptions = None,
-    history_options: HistoryOptions = None,
-    filename: Union[str, None] = "Auto",
+        problem: Problem,
+        optimizer: Optimizer = None,
+        n_starts: int = 100,
+        ids: Iterable[str] = None,
+        startpoint_method: Union[Callable, bool] = None,
+        result: Result = None,
+        engine: Engine = None,
+        progress_bar: bool = True,
+        options: OptimizeOptions = None,
+        history_options: HistoryOptions = None,
 ) -> Result:
     """
-    Do multistart optimization.
+    This is the main function to call to do multistart optimization.
 
     Parameters
     ----------
@@ -61,11 +55,6 @@ def minimize(
         Various options applied to the multistart optimization.
     history_options:
         Optimizer history options.
-    filename:
-        Name of the hdf5 file, where the result will be saved. Default is
-        "Auto", in which case it will automatically generate a file named
-        `year_month_day_optimization_result.hdf5`. Deactivate saving by
-        setting filename to `None`.
 
     Returns
     -------
@@ -73,35 +62,39 @@ def minimize(
         Result object containing the results of all multistarts in
         `result.optimize_result`.
     """
+
     # optimizer
     if optimizer is None:
         optimizer = ScipyOptimizer()
 
-    # number of starts
-    n_starts = bound_n_starts_from_env(n_starts)
-
     # startpoint method
-    if startpoint_method is None:
+    if (startpoint_method is not None) \
+            and (problem.startpoint_method is not None):
+        raise Warning('Problem.startpoint_method will be ignored. Start '
+                      'points will be generated using the startpoint method '
+                      'given as an argument to the minimize function.')
+    elif problem.startpoint_method is not None:
+        startpoint_method = problem.startpoint_method
+    elif startpoint_method is None:
         startpoint_method = uniform
-    # convert startpoint method to class instance
-    startpoint_method = to_startpoint_method(startpoint_method)
 
     # check options
     if options is None:
         options = OptimizeOptions()
     options = OptimizeOptions.assert_instance(options)
 
-    # history options
     if history_options is None:
         history_options = HistoryOptions()
     history_options = HistoryOptions.assert_instance(history_options)
 
     # assign startpoints
-    startpoints = startpoint_method(
-        n_starts=n_starts,
-        problem=problem,
-    )
-
+    startpoints = assign_startpoints(
+        n_starts=n_starts, startpoint_method=startpoint_method,
+        problem=problem, startpoint_resample=options.startpoint_resample)
+    # with open('/home/zebo/Desktop/startpoints.txt', 'w') as file:
+    #     file.write(str(startpoints))
+    # print(str(startpoints))
+    # breakpoint()
     if ids is None:
         ids = [str(j) for j in range(n_starts)]
     if len(ids) != n_starts:
@@ -115,31 +108,24 @@ def minimize(
     if engine is None:
         engine = SingleCoreEngine()
 
-    # change to one hdf5 storage file per start if parallel and if hdf5
-    history_file = history_options.storage_file
-    history_requires_postprocessing = preprocess_hdf5_history(
-        history_options, engine
-    )
-
     # define tasks
     tasks = []
+    filename = None
+    if history_options.storage_file is not None and \
+            history_options.storage_file.endswith(('.h5', '.hdf5')):
+        filename = check_hdf5_mp(history_options, engine)
+
     for startpoint, id in zip(startpoints, ids):
         task = OptimizerTask(
-            optimizer=optimizer,
-            problem=problem,
-            x0=startpoint,
-            id=id,
-            history_options=history_options,
-            optimize_options=options,
-        )
+            optimizer=optimizer, problem=problem, x0=startpoint, id=id,
+            options=options, history_options=history_options)
         tasks.append(task)
 
-    # perform multistart optimization
+    # do multistart optimization
     ret = engine.execute(tasks, progress_bar=progress_bar)
 
-    # merge hdf5 history files
-    if history_requires_postprocessing:
-        postprocess_hdf5_history(ret, history_file, history_options)
+    if filename is not None:
+        fill_hdf5_file(ret, filename)
 
     # aggregate results
     for optimizer_result in ret:
@@ -147,10 +133,5 @@ def minimize(
 
     # sort by best fval
     result.optimize_result.sort()
-
-    # if history file provided, set storage file to that one
-    if filename == "Auto" and history_file is not None:
-        filename = history_file
-    autosave(filename=filename, result=result, store_type="optimize")
 
     return result
