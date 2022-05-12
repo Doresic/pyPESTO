@@ -94,11 +94,8 @@ class OptimalScalingInnerSolver(InnerSolver):
             List of optimization results
         """
 
-        if False in [x_inner_opt[idx]['success'] for idx in range(len(x_inner_opt))]:
-            obj = np.nan
-            warnings.warn(f"Inner optimization failed.")
-        else:
-            obj = np.sum(
+    
+        obj = np.sum(
                 [x_inner_opt[idx]['fun'] for idx in range(len(x_inner_opt))]
             )
         #print(obj)
@@ -174,6 +171,7 @@ class OptimalScalingInnerSolver(InnerSolver):
 
                 N, delta_c, c, n = get_spline_bases(sim_all)
                 delta_c_dot, c_dot = get_spline_bases_gradient(sim_all, sy_all)
+                min_meas, max_meas, min_diff = get_min_max_min_diff(measurements, N)
 
                 #This is just to save the spline parameters for later visualizations
                 xi = np.zeros(len(s))
@@ -195,14 +193,14 @@ class OptimalScalingInnerSolver(InnerSolver):
                 
                 #Checking for errors in MU
                 # for i in range(len(s)):
-                #     if(s[i]>1e-6 and mu[i]>1e-6): 
-                #         print(s[i], mu[i])
-                #         print("MU bi trebao biti 0 ovdje")
-                #         #breakpoint()
-                #     if(mu[i]<0):
-                #         print(s[i], mu[i])
-                #         print("MU is negative!!")
-                #         #breakpoint()
+                    #if(s[i]>1e-6 and mu[i]>1e-6): 
+                    #    with open('/home/zebo/Desktop/base_error.csv', 'a', newline='') as file:
+                    #        writer = csv.writer(file)
+                    #        writer.writerow(np.block([sim_all, np.asarray([4, i, delta_c, c[0], c[N-1], s[i], mu[i]])]))
+                    # if(mu[i]<0):
+                    #     with open('/home/zebo/Desktop/base_error.csv', 'a', newline='') as file:
+                    #         writer = csv.writer(file)
+                    #         writer.writerow(np.block([sim_all, np.asarray([5, i, delta_c, c[0], c[N-1], s[i], mu[i]])]))
                 
                 # #ovo ima smisla, dosta dobro, i lagano! Treba biti 0 tamo gdje s nije!!!
                 
@@ -223,8 +221,8 @@ class OptimalScalingInnerSolver(InnerSolver):
                     sum_s= 0
                     for j in range(i):
                         sum_s += s[j]
-    
-                    df_dyk+= (1/sigma_k**2) * ((y_k - c[i-1])*s[i]/delta_c + sum_s - z_k)*s[i]*((y_dot_k - c_dot[i-1])*delta_c - (y_k - c[i-1])*delta_c_dot)/delta_c**2
+                    if(i>0):
+                        df_dyk+= (1/sigma_k**2) * ((y_k - c[i-1])*s[i]/delta_c + sum_s - z_k)*s[i]*((y_dot_k - c_dot[i-1])*delta_c - (y_k - c[i-1])*delta_c_dot)/delta_c**2
 
                 grad += df_dyk
             snllh[par_opt_idx] = grad
@@ -253,12 +251,15 @@ def spline_optimize_surrogate(gr: float,
     """Run optimization for inner problem"""
 
     from scipy.optimize import minimize, least_squares
+    import fides
 
     sim_all = get_sim_all_for_quantitative(gr, sim, simulation_indices)
 
     measurements = quantitative_data.measurement.values
 
     N, delta_c, c, n = get_spline_bases(sim_all)
+
+    min_meas, max_meas, min_diff = get_min_max_min_diff(measurements, N) 
     
     def obj_surr_reformulated(x):
         return obj_spline_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n)
@@ -266,26 +267,47 @@ def spline_optimize_surrogate(gr: float,
     def obj_jac_reformulated(x):
         return spline_get_Jacobian_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n)
     
+    # def obj_hess_reformulated(x):
+    #     return spline_get_Hessian_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n)
+
+    # def obj_fides(x):
+    #     return obj_spline_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n), \
+    #            spline_get_Jacobian_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n), \
+    #            spline_get_Hessian_reformulated(x, sim_all, measurements, sigma, N, delta_c, c, n)
+    
     inner_options = \
         get_spline_inner_options(measurements, gr, N)
     
-    #results = minimize(obj_surr_reformulated, jac = obj_jac_reformulated, **inner_options)
+    results = minimize(obj_surr_reformulated, jac = obj_jac_reformulated, **inner_options)
+    results['x'][0] = results['x'][0].clip(min=0)
+    results['x'][1:] = results['x'][1:].clip(min=min_diff)
     
-    results_ls = least_squares(obj_surr_reformulated, inner_options['x0'], jac=obj_jac_reformulated, bounds=(0,np.inf))
+    # results_ls = least_squares(obj_surr_reformulated, inner_options['x0'], jac=obj_jac_reformulated, bounds=(0,np.inf))
+    # results_ls['x'] = results_ls['x'].clip(min=0)
     
-    results_ls['x'] = results_ls['x'].clip(min=0)
     
+    # lower_bounds = np.full(N, min_diff)
+    # upper_bounds = np.full(N, np.inf)
+    # lower_bounds[0]=0
+    # opt_fides = fides.Optimizer(obj_fides, ub = upper_bounds, lb=lower_bounds)
+
+    # results_fides = opt_fides.minimize(inner_options['x0'])
+
     #gradient check:
     # import scipy
     # s=results['x']
-    # gr_check=scipy.optimize.check_grad(obj_surr_reformulated, obj_jac_reformulated, xi)
+    # gr_check=scipy.optimize.check_grad(obj_surr_reformulated, obj_jac_reformulated, s)
     # if(gr_check>1e-4):
+    #     print("measurement: ", measurements)
+    #     print("delta_c, N, c", delta_c, N, c)
+    #     print("n:", n)
+    #     print("sim:", sim_all)
     #     print("xI: ", s)
     #     print("JACOBIAN: ", obj_jac_reformulated(s))
     #     print("Error for group ", gr, ": ", gr_check)
     #     print("Inner Grad is not good!!!!!")
-        # breakpoint()
-    return results_ls
+    #     breakpoint()
+    return results
 
 def obj_spline(gr: float,
                optimal_xi: np.ndarray,
@@ -349,8 +371,11 @@ def obj_spline_reformulated(optimal_s: np.ndarray,
             sum_s= 0
             for j in range(i):
                 sum_s += optimal_s[j]
-            obj+= (1/sigma_k**2)*(z_k - (y_k - c[i-1])*optimal_s[i]/delta_c - sum_s)**2 
-            obj += math.log(2 * math.pi * sigma_k**2)
+            if(i==0):
+                obj+=(1/sigma_k**2)*(z_k - optimal_s[i])**2 
+            else:
+                obj+= (1/sigma_k**2)*(z_k - (y_k - c[i-1])*optimal_s[i]/delta_c - sum_s)**2 
+            #obj += math.log(2 * math.pi * sigma_k**2)
         obj = obj/2
         return obj
 
@@ -372,23 +397,37 @@ def get_spline_inner_options(measurements: np.ndarray,
     #         x0[k-1] = last_inner_runs.iloc[[-1]]['xi_' + str(k)].values[0]
     # except:
     
+    min_meas, max_meas, min_diff = get_min_max_min_diff(measurements, N)  
+    range_all = max_meas - min_meas
+
+    constraint_min_diff = np.full(N, min_diff)
+    constraint_min_diff[0]=0
+
+    x0 = np.full(N, (max_meas + 0.3*range_all-np.max([min_meas - 0.3*range_all, 0]))/(N-1))
+    x0[0] = np.max([min_meas - 0.3*range_all, 0])
+    
+    #constraints = get_monotonicity_constraints(N, len(measurements), max_all, min_all)
+    inner_options = {'x0': x0, 'method': 'SLSQP',
+                     'options': {'maxiter': 2000, 'ftol': 1e-10, 'disp': True},
+                     'constraints': {'type': 'ineq', 'fun': lambda x: x - constraint_min_diff}}
+
+    return inner_options
+
+def get_min_max_min_diff(measurements: np.ndarray,
+                         N: int):
+    """
+    Return minimal measurement, maximal measurement 
+    and minimal parameter difference for spline parameters
+    """  
+
     min_all=max_all=measurements[0]
     for m in measurements:
         if(m>max_all): max_all = m
         if(m<min_all): min_all = m    
     range_all = max_all - min_all
 
-    par_minimum = range_all/(2*N)
-
-    x0 = np.full(N, (max_all + 0.3*range_all-np.max([min_all - 0.3*range_all, 0]))/(N-1))
-    x0[0] = np.max([min_all - 0.3*range_all, 0])
-    
-    #constraints = get_monotonicity_constraints(N, len(measurements), max_all, min_all)
-    inner_options = {'x0': x0, 'method': 'SLSQP',
-                     'options': {'maxiter': 2000, 'ftol': 1e-10, 'disp': True},
-                     'constraints': {'type': 'ineq', 'fun': lambda x: x}}
-
-    return inner_options
+    min_diff = range_all/(2*N)
+    return min_all, max_all, min_diff
 
 def get_monotonicity_constraints(N: int,
                                  K: int,
@@ -471,15 +510,45 @@ def spline_get_Jacobian_reformulated(optimal_s: np.ndarray,
                 zip(sim_all, measurements, sigma, n):
             
             sum_s=0
-            i = n_k-1 #just the iterator to go over the Jacobian matrix
+            i = n_k-1 #just the iterator to go over the Jacobian array
             for j in range(i):
                 sum_s += optimal_s[j]
             #ALSO MAKE THE LAST MONOTONICITY STEP
-            Jacobian[i] += (1/sigma_k**2)*((y_k - c[i-1])*optimal_s[i]/delta_c + sum_s - z_k)*(y_k- c[i-1])/delta_c
-            for j in range(i):
-                Jacobian[j]+=(1/sigma_k**2)*((y_k - c[i-1])*optimal_s[i]/delta_c + sum_s - z_k)
+            if(i==0):
+                Jacobian[i] += (1/sigma_k**2)*(optimal_s[i] - z_k) 
+            else:
+                Jacobian[i] += (1/sigma_k**2)*((y_k - c[i-1])*optimal_s[i]/delta_c + sum_s - z_k)*(y_k- c[i-1])/delta_c
+                for j in range(i):
+                    Jacobian[j]+=(1/sigma_k**2)*((y_k - c[i-1])*optimal_s[i]/delta_c + sum_s - z_k)
         #print(Jacobian)
         return Jacobian
+
+def spline_get_Hessian_reformulated(optimal_s: np.ndarray,
+                                     sim_all: np.ndarray,
+                                     measurements: np.ndarray,
+                                     sigma: np.ndarray,
+                                     N: int,
+                                     delta_c: float,
+                                     c: np.ndarray,
+                                     n: np.ndarray):
+        
+        Hessian = np.zeros((N,N))
+
+        for y_k, z_k, sigma_k, n_k in \
+                zip(sim_all, measurements, sigma, n):
+            sum_s=0
+            i = n_k-1 #just the iterator to go over the Hessian matrix
+            for j in range(i):
+                sum_s += optimal_s[j]
+            #ALSO MAKE THE LAST MONOTONICITY STEP
+            Hessian[i][i] += (1/sigma_k**2)*((y_k - c[i-1])/delta_c)**2
+            for j in range(i):
+                Hessian[i][j]+=(1/sigma_k**2)*((y_k - c[i-1])/delta_c)
+                Hessian[j][i]+=(1/sigma_k**2)*((y_k - c[i-1])/delta_c)
+                for h in range(i):
+                    Hessian[j][h]+=(1/sigma_k**2)
+        #print(np.linalg.eig(Hessian))
+        return Hessian
 
 def spline_get_dxi_dtheta(gr,
                           sim_all,
@@ -566,6 +635,8 @@ def ls_spline_get_ds_dtheta(sim_all,
         Jacobian_derivative = np.zeros((N,N))
         rhs = np.zeros(2*N)
 
+        min_meas, max_meas, min_diff = get_min_max_min_diff(measurements, N)
+
         for y_k, z_k, y_dot_k, sigma_k, n_k in \
                 zip(sim_all, measurements, sy_all, sigma, n):
             
@@ -576,19 +647,24 @@ def ls_spline_get_ds_dtheta(sim_all,
                 sum_s += s[j]
 
             #calculate the Jacobian derivative:
-            Jacobian_derivative[i][i]+= (1/sigma_k**2)*(y_k - c[i-1])**2 / delta_c**2
-            rhs[i]+=(1/sigma_k**2)*(2*(y_k - c[i-1])/delta_c *s[i] + sum_s - z_k)*((y_dot_k - c_dot[i-1])*delta_c - (y_k - c[i-1])*delta_c_dot)/delta_c**2
-            if(i>0):
-                for l in range(i):
-                    Jacobian_derivative[i][l]+=(1/sigma_k**2)*(y_k - c[i-1]) / delta_c
-                    Jacobian_derivative[l][i]+=(1/sigma_k**2)*(y_k - c[i-1]) / delta_c
-                    rhs[l]+=(1/sigma_k**2)*((y_dot_k - c_dot[i-1])*delta_c - (y_k - c[i-1])*delta_c_dot)*s[i]/delta_c**2
-                    for h in range(i):
-                        Jacobian_derivative[l][h]+=(1/sigma_k**2)
+            if(i==0):
+                Jacobian_derivative[i][i] += (1/sigma_k**2)
+            else:
+                Jacobian_derivative[i][i]+= (1/sigma_k**2)*(y_k - c[i-1])**2 / delta_c**2
+                rhs[i]+=(1/sigma_k**2)*(2*(y_k - c[i-1])/delta_c *s[i] + sum_s - z_k)*((y_dot_k - c_dot[i-1])*delta_c - (y_k - c[i-1])*delta_c_dot)/delta_c**2
+                if(i>0):
+                    for l in range(i):
+                        Jacobian_derivative[i][l]+=(1/sigma_k**2)*(y_k - c[i-1]) / delta_c
+                        Jacobian_derivative[l][i]+=(1/sigma_k**2)*(y_k - c[i-1]) / delta_c
+                        rhs[l]+=(1/sigma_k**2)*((y_dot_k - c_dot[i-1])*delta_c - (y_k - c[i-1])*delta_c_dot)*s[i]/delta_c**2
+                        for h in range(i):
+                            Jacobian_derivative[l][h]+=(1/sigma_k**2)
         
         from scipy import linalg
+        constraint_min_diff = np.diag(np.full(N, min_diff))
+        constraint_min_diff[0][0] = 0
         lhs = np.block([[Jacobian_derivative, C],
-                        [-np.diag(mu), -np.diag(s)]])
+                        [-np.diag(mu), constraint_min_diff-np.diag(s)]])
         ds_dtheta = linalg.lstsq(lhs, rhs, lapack_driver='gelsy')
             
         return ds_dtheta[0][:N]
@@ -1322,8 +1398,12 @@ def get_monotonicity_measure(quantitative_data, sim_all):
      #    print(quantitative_data)
     inversions=0
     ordered_simulation = quantitative_data.simulation.values
+    measurement = quantitative_data.measurement.values
     for i in range(len(ordered_simulation)):
         for j in range(i+1, len(ordered_simulation)):
-            if(ordered_simulation[i]>ordered_simulation[j]): inversions+=1
+            if(ordered_simulation[i]>ordered_simulation[j]): 
+                inversions+=1
+            elif(ordered_simulation[i]==ordered_simulation[j] and measurement[i]!=measurement[j]):
+                inversions+=1
     #print(inversions)
     return inversions

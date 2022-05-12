@@ -75,8 +75,8 @@ def main():
     optimizer = get_optimizer('L-BFGS-B')
     results = run_optimization(importer,
                                optimizer,
-                               history_name =f'histories/Boehm_histories/' + f'Benchmark_models_test/history_Boehm_' + '_{id}.csv', 
-                               num_starts=2,
+                               history_name =f'histories/Rahman_histories/' + f'new/Benchmark_models_200/history_Rahman_' + '_{id}.csv', 
+                               num_starts=200,
                                min_gap=1e-16)
 
 
@@ -85,14 +85,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/Boehm_test_quantitative_bench_waterfall.png")
+    plt.savefig("plots/Rahman_quantitative_bench_200_waterfall.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [0,1,2,3,4,5],
+                                 parameter_indices = [0,1,2,3,4,5,6,7,8],
                                  size=(15,12), 
                                  legends=['Quantitative'],
                                  balance_alpha=True)
-    plt.savefig("plots/Boehm_test_quantitative_bench_parameters.png")
+    plt.savefig("plots/Rahman_quantitative_bench_200_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots

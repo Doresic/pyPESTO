@@ -99,9 +99,9 @@ class AmiciCalculator:
             edatas,
             num_threads=min(n_threads, len(edatas)),
         )
-        print(rdatas[0]['y'])
-        print(x_dct)
-        breakpoint()
+        # print(rdatas[0]['y'])
+        # print(x_dct)
+        # breakpoint()
         if not self._known_least_squares_safe and mode == MODE_RES and \
                 sensi_order > 0:
             if not amici_model.getAddSigmaResiduals() and any(

@@ -77,7 +77,28 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         amici_solver.setSensitivityOrder(sensi_order)
         # fill in boring values
         x_dct = copy.deepcopy(x_dct)
+        #Change the parameter values to specific end parameter values
+        # import pandas as pd
 
+        # history_read = pd.read_csv('Boehm_par_diff_fixed_0_history_read.csv', sep='\t')
+        # problem_parameters = history_read[history_read['filename']=='history_Boehm__' + str(168) + '.csv'].values[0][1:7]
+        # parameters = ['Epo_degradation_BaF3', 'k_exp_hetero', 'k_exp_homo', 'k_imp_hetero',
+        # 'k_imp_homo', 'k_phos']
+        # problem_parameters_dict = dict(zip( parameters, problem_parameters))
+
+        # x_dct.update(problem_parameters_dict)
+
+        #Change the parameter values to specific end parameter values raf
+        # import pandas as pd
+
+        # history_read = pd.read_csv('Boehm_par_diff_fixed_0_history_read.csv', sep='\t')
+        # problem_parameters = history_read[history_read['filename']=='history_Boehm__' + str(168) + '.csv'].values[0][1:7]
+        # parameters = ['Epo_degradation_BaF3', 'k_exp_hetero', 'k_exp_homo', 'k_imp_hetero',
+        # 'k_imp_homo', 'k_phos']
+        # problem_parameters_dict = dict(zip( parameters, problem_parameters))
+
+        # x_dct.update(problem_parameters_dict)
+        
         for key, val in self.inner_problem.get_boring_pars(
                 scaled=True).items():
             x_dct[key] = val
@@ -97,14 +118,29 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
             num_threads=min(n_threads, len(edatas)),
         )
         self._check_least_squares(sensi_order, mode, rdatas)
-        breakpoint()
+
+        # import math
+        # for i in range(1):
+        #     # print(len(edatas[i].getObservedData())-np.count_nonzero(np.isnan(edatas[i].getObservedData())))
+        #     print(np.log(2*math.pi*np.square(rdatas[i].sigmay)))
+        #     print(rdatas[i].sigmay)
+        #     print(np.divide(rdatas[i].y.flatten() - edatas[i].getObservedData(), rdatas[i].sigmay.flatten()))
+        #     print(rdatas[i].res)
+        #     print(np.log(2*math.pi*np.square(rdatas[i].sigmay)).sum() + np.square(np.divide(rdatas[i].y.flatten() - edatas[i].getObservedData(), rdatas[i].sigmay.flatten())).sum())
+        #     print(rdatas[0].llh*2)
+            
+        # #This works now, think now about how to use it
+        # res_reshaped = np.reshape(rdatas[0].res, (16,3)).transpose()
+        # print(res_reshaped)
+        # print(np.log(2*math.pi*np.square(rdatas[i].sigmay)).sum()+ np.square(res_reshaped).sum())
+        # breakpoint()
 
         # check if any simulation failed
         if any([rdata['status'] < 0.0 for rdata in rdatas]):
             return get_error_output(amici_model, edatas, rdatas, sensi_order, mode, dim)
 
         sim = [rdata['y'] for rdata in rdatas]
-        #print(sim)
+
         # negative_flag = 0
         # for i in range(len(sim[0])):
         #     for j in range(len(sim[0][i])):
