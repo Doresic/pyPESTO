@@ -22,7 +22,7 @@ import pandas as pd
 import faulthandler
 faulthandler.enable()
 
-from pypesto.hierarchical.optimal_scaling_solver import OptimalScalingInnerSolver
+from pypesto.hierarchical.spline_inner_solver import SplineInnerSolver
 from pypesto.hierarchical.problem import InnerProblem
 
 def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
@@ -41,7 +41,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
    # result = pypesto.optimize.minimize(problem=problem, optimizer=optimizer,
    #                       n_starts=2, engine=engine)
 
-    problem.objective.calculator.inner_solver = OptimalScalingInnerSolver(options={'method': 'reduced',
+    problem.objective.calculator.inner_solver = SplineInnerSolver(options={'method': 'reduced',
                                                                                    'reparameterized': False,
                                                                                    'intervalConstraints': 'max',
                                                                                    'minGap': min_gap})

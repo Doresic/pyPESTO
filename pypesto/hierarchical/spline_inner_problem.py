@@ -12,7 +12,7 @@ from .problem import (inner_parameters_from_parameter_df,
                       ix_matrices_from_arrays)
 
 
-class OptimalScalingProblem(InnerProblem):
+class SplineInnerProblem(InnerProblem):
     def __init__(self,
                  xs: List[InnerParameter],
                  data: List[np.ndarray],
@@ -227,7 +227,7 @@ def qualitative_inner_problem_from_petab_problem(
     for par in inner_parameters:
         par.ixs = ix_matrices[par.id]
 
-    return OptimalScalingProblem(inner_parameters, edatas, quantitative_data, hard_constraints, simulation_indices)
+    return SplineInnerProblem(inner_parameters, edatas, quantitative_data, hard_constraints, simulation_indices)
 
 def get_hard_constraints(petab_problem: petab.Problem):
     measurement_df = petab_problem.measurement_df

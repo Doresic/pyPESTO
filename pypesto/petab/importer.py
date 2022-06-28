@@ -13,7 +13,7 @@ from ..objective import AmiciObjective, AmiciObjectBuilder, AggregatedObjective
 from ..predict import AmiciPredictor, PredictionResult
 from ..predict.constants import CONDITION_SEP
 from ..hierarchical.problem import InnerProblem
-from ..hierarchical.optimal_scaling_problem import OptimalScalingProblem
+from ..hierarchical.spline_inner_problem import SplineInnerProblem
 from ..hierarchical.calculator import HierarchicalAmiciCalculator
 from ..objective.priors import NegLogParameterPriors, \
     get_parameter_prior_dict
@@ -343,7 +343,7 @@ class PetabImporter(AmiciObjectBuilder):
                 calculator = HierarchicalAmiciCalculator(inner_problem)
 
         if qualitative:
-            inner_problem = OptimalScalingProblem.from_petab_amici(
+            inner_problem = SplineInnerProblem.from_petab_amici(
                 self.petab_problem, model, edatas)
             if not inner_problem.is_empty():
                 calculator = HierarchicalAmiciCalculator(inner_problem)

@@ -8,9 +8,9 @@ from ..objective.amici_util import (
     get_error_output)
 from ..objective.constants import FVAL, GRAD, HESS, RES, SRES, RDATAS
 from .problem import InnerProblem
-from .optimal_scaling_problem import OptimalScalingProblem
+from .spline_inner_problem import SplineInnerProblem
 from .solver import InnerSolver, AnalyticalInnerSolver
-from .optimal_scaling_solver import OptimalScalingInnerSolver
+from .spline_inner_solver import SplineInnerSolver
 
 try:
     import amici
@@ -33,7 +33,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
     """
 
     def __init__(self,
-                 inner_problem: OptimalScalingProblem,
+                 inner_problem: SplineInnerProblem,
                  inner_solver: InnerSolver = None):
         """
         Initialize the calculator from the given problem.
@@ -45,7 +45,7 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         if inner_solver is None:
             # inner_solver = NumericalInnerSolver()
             # inner_solver = AnalyticalInnerSolver()
-            inner_solver = OptimalScalingInnerSolver()
+            inner_solver = SplineInnerSolver()
         self.inner_solver = inner_solver
 
     def initialize(self):
@@ -80,25 +80,6 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         #Change the parameter values to specific end parameter values
         # import pandas as pd
 
-        # history_read = pd.read_csv('Boehm_par_diff_fixed_0_history_read.csv', sep='\t')
-        # problem_parameters = history_read[history_read['filename']=='history_Boehm__' + str(168) + '.csv'].values[0][1:7]
-        # parameters = ['Epo_degradation_BaF3', 'k_exp_hetero', 'k_exp_homo', 'k_imp_hetero',
-        # 'k_imp_homo', 'k_phos']
-        # problem_parameters_dict = dict(zip( parameters, problem_parameters))
-
-        # x_dct.update(problem_parameters_dict)
-
-        #Change the parameter values to specific end parameter values raf
-        # import pandas as pd
-
-        # history_read = pd.read_csv('Boehm_par_diff_fixed_0_history_read.csv', sep='\t')
-        # problem_parameters = history_read[history_read['filename']=='history_Boehm__' + str(168) + '.csv'].values[0][1:7]
-        # parameters = ['Epo_degradation_BaF3', 'k_exp_hetero', 'k_exp_homo', 'k_imp_hetero',
-        # 'k_imp_homo', 'k_phos']
-        # problem_parameters_dict = dict(zip( parameters, problem_parameters))
-
-        # x_dct.update(problem_parameters_dict)
-        
         for key, val in self.inner_problem.get_boring_pars(
                 scaled=True).items():
             x_dct[key] = val
@@ -119,21 +100,6 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         )
         self._check_least_squares(sensi_order, mode, rdatas)
 
-        # import math
-        # for i in range(1):
-        #     # print(len(edatas[i].getObservedData())-np.count_nonzero(np.isnan(edatas[i].getObservedData())))
-        #     print(np.log(2*math.pi*np.square(rdatas[i].sigmay)))
-        #     print(rdatas[i].sigmay)
-        #     print(np.divide(rdatas[i].y.flatten() - edatas[i].getObservedData(), rdatas[i].sigmay.flatten()))
-        #     print(rdatas[i].res)
-        #     print(np.log(2*math.pi*np.square(rdatas[i].sigmay)).sum() + np.square(np.divide(rdatas[i].y.flatten() - edatas[i].getObservedData(), rdatas[i].sigmay.flatten())).sum())
-        #     print(rdatas[0].llh*2)
-            
-        # #This works now, think now about how to use it
-        # res_reshaped = np.reshape(rdatas[0].res, (16,3)).transpose()
-        # print(res_reshaped)
-        # print(np.log(2*math.pi*np.square(rdatas[i].sigmay)).sum()+ np.square(res_reshaped).sum())
-        # breakpoint()
 
         # check if any simulation failed
         if any([rdata['status'] < 0.0 for rdata in rdatas]):
@@ -141,51 +107,16 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
 
         sim = [rdata['y'] for rdata in rdatas]
 
-        # negative_flag = 0
-        # for i in range(len(sim[0])):
-        #     for j in range(len(sim[0][i])):
-        #         if(sim[0][i][j]<0):
-        #             print("Negative Element: ", sim[0][i][j])
-        #             negative_flag = 1
-        #if(negative_flag == 1): breakpoint()
         #Sometimes some simulations are very small negative numbers, so:
         for i in range(len(sim)):
             sim[i]=sim[i].clip(min=0)
         sigma = [rdata['sigmay'] for rdata in rdatas]
-        #print(sim)
-        #breakpoint()
-        # compute optimal inner parameters
+
 
         x_inner_opt = self.inner_solver.solve(
-            self.inner_problem, sim, sigma, scaled=True)
-
-        #if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
+            self.inner_problem, sim, sigma)
         nllh = self.inner_solver.calculate_obj_function(x_inner_opt)
-        # elif(self.inner_solver.options['InnerOptimizer']=='LeastSquares'):
-        #     nllh= self.inner_solver.ls_calculate_obj_function(x_inner_opt)
-        # else:
-        #     print("Wrong choice of inner optimizer")
-        #     breakpoint()
 
-        # if sensi_order == 0:
-        #     dim = len(x_ids)
-        #     nllh = compute_nllh(self.inner_problem.data, sim, sigma)
-        #     return {
-        #         FVAL: nllh,
-        #         GRAD: np.zeros(dim),
-        #         HESS: np.zeros([dim, dim]),
-        #         RES: np.zeros([0]),
-        #         SRES: np.zeros([0, dim]),
-        #         RDATAS: rdatas
-        #     }
-
-        # fill in optimal values
-        # TODO: x_inner_opt is different for hierarchical and
-        #  qualitative approach. For now I commented the following
-        #  lines out to make qualitative approach work.
-        # x_dct = copy.deepcopy(x_dct)
-        # for key, val in x_inner_opt.items():
-        #    x_dct[key] = val
 
         # fill in parameters
         # TODO (#226) use plist to compute only required derivatives
@@ -198,20 +129,9 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
         )
 
         if sensi_order > 0:
-            #amici_solver.setSensitivityOrder(sensi_order)
-            num_model_pars = len(amici_model.getParameterIds())
-            # resimulate
-            # run amici simulation
-            #rdatas = amici.runAmiciSimulations(
-            #    amici_model,
-            #    amici_solver,
-            #    edatas,
-            #    num_threads=min(n_threads, len(edatas)),
-            #)
             sy = [rdata['sy'] for rdata in rdatas]
             
 
-            #if(self.inner_solver.options['InnerOptimizer']=='SLSQP'):
             snllh = self.inner_solver.calculate_gradients_reformulated(self.inner_problem,
                                                               x_inner_opt,
                                                               sim,
@@ -231,7 +151,3 @@ class HierarchicalAmiciCalculator(AmiciCalculator):
                 SRES: sres,
                 RDATAS: rdatas
                 }
-
-        #return calculate_function_values(
-        #    rdatas, sensi_order, mode, amici_model, amici_solver, edatas,
-        #    x_ids, parameter_mapping,fim_for_hess)

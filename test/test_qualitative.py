@@ -1,7 +1,7 @@
 import pypesto
 import pypesto.petab
 import pypesto.optimize
-from pypesto.hierarchical.optimal_scaling_solver import OptimalScalingInnerSolver
+from pypesto.hierarchical.spline_inner_solver import SplineInnerSolver
 import pypesto.logging
 
 import pytest
@@ -72,6 +72,6 @@ def create_problem(petab_problem, option):
 
     objective = importer.create_objective(hierarchical=True)
     problem = importer.create_problem(objective)
-    problem.objective.calculator.inner_solver = OptimalScalingInnerSolver(options=option)
+    problem.objective.calculator.inner_solver = SplineInnerSolver(options=option)
     return problem
 

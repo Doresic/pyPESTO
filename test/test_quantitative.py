@@ -26,7 +26,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
     """Run optimization"""
     pypesto.logging.log_to_console(logging.INFO)
     
-    objective = importer.create_objective()
+    objective = importer.create_objective(force_compile = True)
     
     problem = importer.create_problem(objective)
 
@@ -36,7 +36,7 @@ def run_optimization(importer, optimizer, history_name, num_starts, min_gap):
 
     print("Zavrsio sam ovo")
     history_options = pypesto.HistoryOptions(trace_record=True, storage_file=history_name)
-    #np.random.seed(num_starts)
+    np.random.seed(num_starts)
     
     result = pypesto.optimize.minimize(problem,
                                        n_starts=num_starts,
@@ -75,8 +75,8 @@ def main():
     optimizer = get_optimizer('L-BFGS-B')
     results = run_optimization(importer,
                                optimizer,
-                               history_name =f'histories/Rahman_histories/' + f'new/Benchmark_models_200/history_Rahman_' + '_{id}.csv', 
-                               num_starts=200,
+                               history_name =f'histories/Boehm_histories/' + f'new/test/history_Boehm_' + '_{id}.csv', 
+                               num_starts=1,
                                min_gap=1e-16)
 
 
@@ -85,14 +85,14 @@ def main():
                                 scale_y='log10', 
                                 y_limits=2e-17, 
                                 size=(15,6))
-    plt.savefig("plots/Rahman_quantitative_bench_200_waterfall.png")
+    plt.savefig("plots/Boehm_test_waterfall.png")
 
     pypesto.visualize.parameters([results],
-                                 parameter_indices = [0,1,2,3,4,5,6,7,8],
+                                 parameter_indices = [0,1,2,3,4,5],
                                  size=(15,12), 
                                  legends=['Quantitative'],
                                  balance_alpha=True)
-    plt.savefig("plots/Rahman_quantitative_bench_200_parameters.png")
+    plt.savefig("plots/Boehm_test_parameters.png")
 
 """
 #running two optimizations to compare waterfall plots

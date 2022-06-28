@@ -82,7 +82,13 @@ class AmiciCalculator:
             amici_solver.setSensitivityOrder(sensi_order-1)
         else:
             amici_solver.setSensitivityOrder(sensi_order)
+        parameters = ['Epo_degradation_BaF3', 'k_exp_hetero', 'k_exp_homo', 'k_imp_hetero',
+        'k_imp_homo', 'k_phos']
+        #my problem_parameters = [-1.56892028365549,	-4.99751665745781,	-2.20968528865254,	-1.78600293608157,	4.85908007153747,	4.19772504463076]
+        problem_parameters = [-1.56909481623049,	-5,	-2.20981706854738,	-1.78588049991618,	5,	4.19771882812087]
+        problem_parameters_dict = dict(zip( parameters, problem_parameters))
 
+        x_dct.update(problem_parameters_dict)
         # fill in parameters
         amici.parameter_mapping.fill_in_parameters(
             edatas=edatas,
@@ -99,9 +105,13 @@ class AmiciCalculator:
             edatas,
             num_threads=min(n_threads, len(edatas)),
         )
-        # print(rdatas[0]['y'])
-        # print(x_dct)
-        # breakpoint()
+        print(rdatas[0]['y'])
+        for i in range(3):
+            for j in range(16):
+                print(rdatas[0]['y'][j][i])
+        print(x_dct)
+        breakpoint()
+        
         if not self._known_least_squares_safe and mode == MODE_RES and \
                 sensi_order > 0:
             if not amici_model.getAddSigmaResiduals() and any(
@@ -176,6 +186,8 @@ def calculate_function_values(rdatas,
 
         # add objective value
         nllh -= rdata['llh']
+        print(nllh)
+        breakpoint()
 
         if mode == MODE_FUN:
             if not np.isfinite(nllh):

@@ -6,8 +6,8 @@ Hierarchical optimization
 """
 
 from .calculator import HierarchicalAmiciCalculator
-from .optimal_scaling_problem import OptimalScalingProblem
-from .optimal_scaling_solver import OptimalScalingInnerSolver
+from .spline_inner_problem import SplineInnerProblem
+from .spline_inner_solver import SplineInnerSolver
 from .parameter import InnerParameter
 from .problem import InnerProblem
 from .solver import (
