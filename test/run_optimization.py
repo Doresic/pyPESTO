@@ -85,7 +85,7 @@ def get_petab_problem(model_name):
 
     all_model_paths = {
         "Raf": "Raf_Mitra_NatCom2018OptimalScaling_3CatQual/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml",
-        "tanh_Raf": "Raf_Mitra_NatCom2018OptimalScaling_3CatQual_tanh/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml",
+        "tanh_Raf": "Raf_Mitra_NatCom2018OptimalScaling_3CatQual_tanh_2/Raf_Mitra_NatCom2018OptimalScaling_3CatQual.yaml",
         "Boehm": "Boehm_JProteomeRes2014OptimalScaling/Boehm_JProteomeRes2014OptimalScaling.yaml",
         "Benchmark_Boehm": "Boehm_JProteomeRes2014/Boehm_JProteomeRes2014.yaml",
         "non_linear_Boehm": "Boehm_JProteomeRes2014OptimalScaling_diff_fct_2/Boehm_JProteomeRes2014OptimalScaling.yaml",
