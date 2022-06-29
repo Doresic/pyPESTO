@@ -404,19 +404,6 @@ def obj_spline_reformulated(
 def get_spline_inner_options(N: int, min_meas: float, max_meas: float, min_diff: float) -> Dict:
 
     """Return options for optimization"""
-    # TODO not implemented, start at last optimal spline parameters.
-    # try:
-    #     with open('/home/zebo/Desktop/numerical_spline_xi.csv') as file:
-    #         last_lines = tailer.tail(file, 4)
-    #     last_inner_runs = pd.read_csv(io.StringIO('\n'.join(last_lines)),
-    #                             names=['gr', 'N', 'delta_c', 'c_1', 'inversions', 'xi_1', 'xi_2', 'xi_3', 'xi_4', 'xi_5', 'xi_6', 'xi_7', 'xi_8', 'xi_9', 'xi_10', 'xi_11', 'xi_12', 'xi_13', 'Sim_1', 'Sim_2', 'Sim_3', 'Sim_4', 'Sim_5', 'Sim_6', 'Sim_7', 'Sim_8', 'Sim_9', 'Sim_10', 'Sim_11'])
-
-    #     last_inner_runs = last_inner_runs[last_inner_runs['gr']==gr]
-
-    #     x0 = np.zeros(int(N))
-    #     for k in range(1, int(N)+1):
-    #         x0[k-1] = last_inner_runs.iloc[[-1]]['xi_' + str(k)].values[0]
-    # except:
     range_all = max_meas - min_meas
 
     constraint_min_diff = np.full(N, min_diff)
