@@ -157,6 +157,229 @@ class SemiquantInnerSolver(InnerSolver):
             )
         return obj
 
+    def check_if_can_use_gradients_same_plists(
+        self,
+        sy: list[np.ndarray],
+        parameter_mapping: ParameterMapping,
+        par_opt_ids: list,
+        par_sim_ids: list,
+        par_edatas_indices: list,
+    ):
+        """Check if gradients can be calculated with the assumption of same plists."""
+        par_edatas_indices = [
+            {par_edata_idx: idx for idx, par_edata_idx in enumerate(par_edata)}
+            for par_edata in par_edatas_indices
+        ]
+        par_sim_ids = {
+            par_sim_id: idx for idx, par_sim_id in enumerate(par_sim_ids)
+        }
+        par_opt_ids = {
+            par_opt_id: idx for idx, par_opt_id in enumerate(par_opt_ids)
+        }
+        mappings_across_conditions = []
+
+        for condition_map_sim_var in [
+            cond_par_map.map_sim_var for cond_par_map in parameter_mapping
+        ]:
+            mapping_for_condition = {}
+            for par_sim, par_opt in condition_map_sim_var.items():
+                if not isinstance(par_opt, str):
+                    continue
+                elif par_opt not in par_opt_ids:
+                    continue
+                par_sim_idx = par_sim_ids[par_sim]
+                par_opt_idx = par_opt_ids[par_opt]
+                par_amici_rdata_idx = [
+                    par_edata_indices[par_sim_idx]
+                    for par_edata_indices in par_edatas_indices
+                ]
+                if all(
+                    par_amici_rdata_id == par_amici_rdata_idx[0]
+                    for par_amici_rdata_id in par_amici_rdata_idx
+                ):
+                    par_amici_rdata_idx = par_amici_rdata_idx[0]
+                mapping_for_condition[par_opt_idx] = par_amici_rdata_idx
+            mappings_across_conditions.append(mapping_for_condition)
+
+        if not all(
+            mapping_for_condition == mappings_across_conditions[0]
+            for mapping_for_condition in mappings_across_conditions
+        ):
+            raise ValueError(
+                "Parameter mappings are different across conditions."
+            )
+
+        if len(mappings_across_conditions[0].keys()) == len(sy[0]):
+            raise ValueError(
+                "The number of parameters in the mappings is different from the number of sensitivities."
+            )
+
+        if not all(
+            par_edata_indices == par_edatas_indices[0]
+            for par_edata_indices in par_edatas_indices
+        ):
+            raise ValueError(
+                "plists are not the same for all conditions. "
+                "Cannot use calculate_gradients_same_plists to calculate gradients."
+            )
+
+    def calculate_gradients_same_plists(
+        self,
+        problem: SemiquantProblem,
+        x_inner_opt: list[dict],
+        sim: list[np.ndarray],
+        amici_sigma: list[np.ndarray],
+        sy: list[np.ndarray],
+        amici_ssigma: list[np.ndarray],
+        parameter_mapping: ParameterMapping,
+        par_opt_ids: list,
+        par_sim_ids: list,
+        par_edatas_indices: list,
+        snllh: np.ndarray,
+    ):
+        """Calculate gradients of the inner objective function.
+
+        Vectorized gradient calculation assuming all conditions share the same
+        parameter list (plist). Huge speedup for the Frohlich model (16K conditions).
+
+        Parameters
+        ----------
+        problem:
+            Semiquant inner problem.
+        x_inner_opt:
+            List of optimization results of the inner subproblem.
+        sim:
+            Model simulations.
+        amici_sigma:
+            Model noise parameters.
+        sy:
+            Model sensitivities.
+        amici_ssigma:
+            Model sigma sensitivities.
+        parameter_mapping:
+            Mapping of optimization to simulation parameters.
+        par_opt_ids:
+            Ids of outer optimization parameters.
+        par_sim_ids:
+            Ids of outer simulation parameters, includes fixed parameters.
+        par_edatas_indices:
+            The indices of the parameters in the edatas.
+        snllh:
+            A zero-initialized vector of the same length as ``par_opt_ids`` to
+            store the gradients in. Will be modified in-place.
+
+        Returns
+        -------
+        The gradients with respect to the outer parameters.
+        """
+        # restructure sensitivities to have parameter index as second index
+        sy = [np.moveaxis(sy_cond, 1, 0) for sy_cond in sy]
+
+        n_conditions = len(sy)
+        n_parameters = len(sy[0])
+
+        par_edatas_indices = [
+            {par_edata_idx: idx for idx, par_edata_idx in enumerate(par_edata)}
+            for par_edata in par_edatas_indices
+        ]
+        par_sim_ids = {
+            par_sim_id: idx for idx, par_sim_id in enumerate(par_sim_ids)
+        }
+        par_opt_ids = {
+            par_opt_id: idx for idx, par_opt_id in enumerate(par_opt_ids)
+        }
+
+        sim_to_opt_indices = np.zeros(n_parameters, dtype=int)
+        for par_sim, par_opt in parameter_mapping[0].map_sim_var.items():
+            if not isinstance(par_opt, str):
+                continue
+            elif par_opt not in par_opt_ids:
+                continue
+            par_sim_idx = par_sim_ids[par_sim]
+            par_opt_idx = par_opt_ids[par_opt]
+            par_amici_rdata_idx = [
+                par_edata_indices[par_sim_idx]
+                for par_edata_indices in par_edatas_indices
+            ]
+            if all(
+                par_amici_rdata_id == par_amici_rdata_idx[0]
+                for par_amici_rdata_id in par_amici_rdata_idx
+            ):
+                par_amici_rdata_idx = par_amici_rdata_idx[0]
+            sim_to_opt_indices[par_amici_rdata_idx] = int(par_opt_idx)
+
+        sim_grad = np.zeros(n_parameters)
+
+        for group in problem.get_groups_for_xs(InnerParameterType.SPLINE):
+            group_dict = problem.groups[group]
+            mask = group_dict[EXPDATA_MASK]
+            group_dict[CURRENT_SIMULATION] = extract_expdata_using_mask(
+                expdata=sim, mask=mask
+            )
+            s = np.asarray(x_inner_opt[group - 1][SCIPY_X])
+            N = group_dict[N_SPLINE_PARS]
+            K = group_dict[NUM_DATAPOINTS]
+            measurements = group_dict[DATAPOINTS]
+            sigma = problem.groups[group][INNER_NOISE_PARS]
+            delta_c, c, n = SemiquantInnerSolver._rescale_spline_bases(
+                sim_all=group_dict[CURRENT_SIMULATION], N=N, K=K
+            )
+            sim_all = extract_expdata_using_mask(expdata=sim, mask=mask)
+
+            # Extract sensitivities for this group across all parameters
+            # shape: (n_parameters, n_datapoints_in_group)
+            sy_all_across_pars = np.concatenate(
+                [sy[i][:, mask[i]] for i in range(n_conditions)], axis=1
+            )
+
+            # Calculate gradient of spline knots c and delta_c
+            min_idx = np.argmin(sim_all)
+            max_idx = np.argmax(sim_all)
+            average_value = (sim_all[max_idx] + sim_all[min_idx]) / 2
+            if sim_all[max_idx] - sim_all[min_idx] < MIN_SIM_RANGE:
+                delta_c_dot = np.full(n_parameters, 0)
+                if average_value < (MIN_SIM_RANGE / 2):
+                    c_dot_matrix = np.full((n_parameters, N), 0)
+                else:
+                    c_dot_matrix = np.tile(
+                        (sy_all_across_pars[:, max_idx] - sy_all_across_pars[:, min_idx]) / 2,
+                        (N, 1),
+                    ).T
+            else:
+                c_dot_matrix = np.linspace(
+                    sy_all_across_pars[:, min_idx],
+                    sy_all_across_pars[:, max_idx],
+                    N,
+                    axis=1,
+                )
+                delta_c_dot = (
+                    sy_all_across_pars[:, max_idx] - sy_all_across_pars[:, min_idx]
+                ) / (N - 1)
+
+            # Vectorized gradient wrt simulations y
+            n_indices = n - 1
+            valid_indices = (n_indices > 0) & (n_indices < N)
+            valid_n_indices = n_indices[valid_indices]
+
+            y_c_diff = sim_all[valid_indices] - c[valid_n_indices - 1]
+            s_values = s[valid_n_indices]
+            sum_s = np.cumsum(s[:-1])[valid_n_indices - 1]
+            y_dot_valid = sy_all_across_pars[:, valid_indices]
+            c_dot_valid = c_dot_matrix[:, valid_n_indices - 1]
+            scaled_delta_c_dot = delta_c_dot / delta_c**2
+
+            term1 = y_c_diff * s_values / delta_c + sum_s - measurements[valid_indices]
+            term2 = s_values * (
+                (y_dot_valid - c_dot_valid) / delta_c
+                - np.outer(scaled_delta_c_dot, y_c_diff)
+            )
+
+            sim_grad += np.dot(term2, term1) / sigma**2
+
+        snllh[sim_to_opt_indices] = sim_grad
+
+        return snllh
+
     def calculate_gradients(
         self,
         problem: SemiquantProblem,

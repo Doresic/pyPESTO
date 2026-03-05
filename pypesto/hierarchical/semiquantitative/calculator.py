@@ -68,6 +68,8 @@ class SemiquantCalculator(AmiciCalculator):
         if inner_solver is None:
             inner_solver = SemiquantInnerSolver()
         self.inner_solver = inner_solver
+        self._can_use_same_plists_gradients = False
+        self._recalc_plists_and_scales = True
 
     def initialize(self):
         """Initialize."""
@@ -163,7 +165,10 @@ class SemiquantCalculator(AmiciCalculator):
                 scaled_parameters=True,
                 parameter_mapping=parameter_mapping,
                 amici_model=amici_model,
+                recalc_plists_and_scales=self._recalc_plists_and_scales,
             )
+            if self._recalc_plists_and_scales:
+                self._recalc_plists_and_scales = False
             # run amici simulation
             rdatas = amici.runAmiciSimulations(
                 amici_model,
@@ -189,8 +194,8 @@ class SemiquantCalculator(AmiciCalculator):
                 inner_result[GRAD] = np.full(shape=dim, fill_value=np.nan)
             return filter_return_dict(inner_result)
 
-        sim = [rdata[AMICI_Y] for rdata in rdatas]
-        sigma = [rdata[AMICI_SIGMAY] for rdata in rdatas]
+        sim = np.asarray([rdata[AMICI_Y] for rdata in rdatas])
+        sigma = np.asarray([rdata[AMICI_SIGMAY] for rdata in rdatas])
 
         # Clip negative simulation values to zero, to avoid numerical issues.
         for i in range(len(sim)):
@@ -209,9 +214,22 @@ class SemiquantCalculator(AmiciCalculator):
 
         # Calculate analytical gradients if requested
         if sensi_order > 0:
-            sy = [rdata[AMICI_SY] for rdata in rdatas]
-            ssigma = [rdata[AMICI_SSIGMAY] for rdata in rdatas]
-            inner_result[GRAD] = self.inner_solver.calculate_gradients(
+            if (
+                amici_solver.getSensitivityMethod()
+                == amici.SensitivityMethod_forward
+            ):
+                sy = [rdata[AMICI_SY] for rdata in rdatas]
+                ssigma = [rdata[AMICI_SSIGMAY] for rdata in rdatas]
+            elif (
+                amici_solver.getSensitivityMethod()
+                == amici.SensitivityMethod_adjoint
+            ):
+                sy = get_sensitivities_from_adjoint_gradient(rdatas, edatas)
+                sy = np.asarray(sy)
+                ssigma = [np.zeros_like(s) for s in sy]
+                ssigma = np.asarray(ssigma)
+
+            inner_result[GRAD] = self.inner_solver.calculate_gradients_same_plists(
                 problem=self.inner_problem,
                 x_inner_opt=x_inner_opt,
                 sim=sim,
@@ -226,3 +244,78 @@ class SemiquantCalculator(AmiciCalculator):
             )
 
         return filter_return_dict(inner_result)
+
+
+def get_sensitivities_from_adjoint_gradient(
+    rdatas: list[amici.ReturnData],
+    edatas: list[amici.ExpData],
+):
+    """Get sensitivities from adjoint gradient.
+
+    If there is only one timepoint and one observable per condition, the
+    sensitivities can be calculated from the adjoint gradient as:
+    y_sensitivities = -sllh / ((y - data) / sigma_y) for each condition.
+
+    Only valid for single-timepoint, single-observable-per-condition models
+    (e.g. the Frohlich model).
+
+    Parameters
+    ----------
+    rdatas:
+        List of AMICI simulation results.
+    edatas:
+        List of AMICI experimental data.
+
+    Returns
+    -------
+    y_sensitivities:
+        List of sensitivities for each timepoint, shaped like rdata.sy.
+    """
+    n_observables = rdatas[0].y.shape[1]
+    n_conditions = len(rdatas)
+    n_parameters = len(rdatas[0].sllh)
+    obs_idx_per_cond = np.array(
+        [
+            np.where(
+                ~np.isnan(amici.numpy.ExpDataView(edata)["observedData"][0])
+            )[0][0]
+            for edata in edatas
+        ]
+    )
+
+    y = np.array(
+        [
+            rdata[AMICI_Y][0][obs_idx]
+            for rdata, obs_idx in zip(rdatas, obs_idx_per_cond)
+        ]
+    )
+    wrong_grad = -np.array([rdata["sllh"] for rdata in rdatas])
+    sigma_y = np.array(
+        [
+            rdata[AMICI_SIGMAY][0][obs_idx]
+            for rdata, obs_idx in zip(rdatas, obs_idx_per_cond)
+        ]
+    )
+
+    data = np.array(
+        [
+            amici.numpy.ExpDataView(edata)["observedData"][0][obs_idx]
+            for edata, obs_idx in zip(edatas, obs_idx_per_cond)
+        ]
+    )
+
+    residual = (y - data) / sigma_y
+    # Account for zero residuals. Does not matter for the result, but avoids
+    # division by zero.
+    residual[residual == 0] = 1
+    y_sensitivities = np.divide(wrong_grad, residual[:, np.newaxis])
+
+    # reshape to AMICI rdata.sy shape: (n_conditions, n_timepoints, n_parameters, n_observables)
+    y_sensitivities_correct_dim = np.full(
+        (n_conditions, 1, n_parameters, n_observables), np.nan
+    )
+
+    y_sensitivities_correct_dim[
+        np.arange(n_conditions), 0, :, obs_idx_per_cond
+    ] = y_sensitivities
+    return y_sensitivities_correct_dim

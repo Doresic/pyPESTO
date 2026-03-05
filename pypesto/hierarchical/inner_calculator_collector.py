@@ -113,6 +113,7 @@ class InnerCalculatorCollector(AmiciCalculator):
         self.quantitative_data_mask = self._get_quantitative_data_mask(edatas)
 
         self._known_least_squares_safe = False
+        self._recalc_plists_and_scales = True
 
     def initialize(self):
         """Initialize."""
@@ -371,16 +372,13 @@ class InnerCalculatorCollector(AmiciCalculator):
                 "However, it can be used if the only non-quantitative data type is relative data."
             )
 
-        # if we're using adjoint sensitivity analysis or need second order
-        # sensitivities or are in residual mode, we can do so if the only
-        # non-quantitative data type is relative data. In this case, we
-        # use the relative calculator directly.
-        if (
-            amici_solver.getSensitivityMethod()
-            == amici.SensitivityMethod_adjoint
-            or 2 in sensi_orders
-            or mode == MODE_RES
-        ):
+        # if we need second order sensitivities or are in residual mode,
+        # we can do so if the only non-quantitative data type is relative data.
+        # In this case, we use the relative calculator directly.
+        # Note: adjoint sensitivity is now handled directly by the inner
+        # calculators (relative and semiquant), so it no longer requires
+        # bypassing to the relative calculator here.
+        if 2 in sensi_orders or mode == MODE_RES:
             relative_calculator = self.inner_calculators[0]
             ret = relative_calculator(
                 x_dct=x_dct,
@@ -428,7 +426,10 @@ class InnerCalculatorCollector(AmiciCalculator):
                 scaled_parameters=True,
                 parameter_mapping=parameter_mapping,
                 amici_model=amici_model,
+                recalc_plists_and_scales=self._recalc_plists_and_scales,
             )
+        if self._recalc_plists_and_scales:
+            self._recalc_plists_and_scales = False
 
         # run amici simulation
         rdatas = amici.runAmiciSimulations(
