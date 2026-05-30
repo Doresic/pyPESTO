@@ -48,6 +48,8 @@ from ..objective.amici.amici_util import (
 try:
     import amici
     import petab.v1 as petab
+
+    from . import _amici_patches  # noqa: F401  (patches amici.petab.conditions)
     from amici.petab.parameter_mapping import ParameterMapping
 except ImportError:
     petab = None

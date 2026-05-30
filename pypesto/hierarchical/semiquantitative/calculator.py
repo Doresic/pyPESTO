@@ -34,6 +34,8 @@ from .solver import SemiquantInnerSolver
 
 try:
     import amici
+
+    from .. import _amici_patches  # noqa: F401  (must precede the import below)
     from amici.petab.conditions import fill_in_parameters
     from amici.petab.parameter_mapping import ParameterMapping
 except ImportError:

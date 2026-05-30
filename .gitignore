@@ -76,6 +76,7 @@ data/figures
 
 # osx
 .DS_Store
+._*
 
 # coverage
 coverage_py.xml
