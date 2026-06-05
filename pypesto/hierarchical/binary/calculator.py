@@ -29,11 +29,14 @@ from ...objective.amici.amici_util import (
     filter_return_dict,
     init_return_values,
 )
+from ..relative.calculator import get_sensitivities_from_adjoint_gradient
 from .problem import BinaryInnerProblem
 from .solver import BinaryInnerSolver
 
 try:
     import amici
+
+    from .. import _amici_patches  # noqa: F401  (must precede the import below)
     from amici.petab.conditions import fill_in_parameters
     from amici.petab.parameter_mapping import ParameterMapping
 except ImportError:
@@ -52,10 +55,10 @@ class BinaryAmiciCalculator(AmiciCalculator):
 
     Sensitivity notes
     -----------------
-    - **Forward sensitivity** (``rdata.sy`` populated): full outer gradient
-      is computed via :meth:`BinaryInnerSolver.calculate_gradients`.
-    - **Adjoint sensitivity** (``rdata.sy`` is ``None``): only the function
-      value (NLLH) is returned; the gradient contribution is zero.
+    - **Forward sensitivity**: use ``rdata.sy``.
+    - **Adjoint sensitivity**: reconstruct ``sy`` from AMICI's likelihood
+      gradient for Frohlich-style one-datapoint-per-condition problems.
+    Both paths use :meth:`BinaryInnerSolver.calculate_gradients`.
 
     Parameters
     ----------
@@ -80,8 +83,9 @@ class BinaryAmiciCalculator(AmiciCalculator):
 
     def initialize(self) -> None:
         """Re-initialize inner problem and solver."""
-        for x in self.inner_problem.xs.values():
-            x.value = x.dummy_value
+        super().initialize()
+        self.inner_problem.initialize()
+        self.inner_solver.initialize()
 
     def __call__(
         self,
@@ -134,6 +138,13 @@ class BinaryAmiciCalculator(AmiciCalculator):
             Keys: ``FVAL``, ``GRAD``, ``HESS``, ``RES``, ``SRES``,
             ``RDATAS``, ``INNER_PARAMETERS``.
         """
+        if not self.inner_problem.check_edatas(edatas=edatas):
+            raise ValueError(
+                "The experimental data provided to this call differs from "
+                "the experimental data used to setup the binary hierarchical "
+                "optimizer."
+            )
+
         if mode == MODE_RES:
             raise ValueError(
                 "BinaryAmiciCalculator does not support residual mode."
@@ -153,15 +164,6 @@ class BinaryAmiciCalculator(AmiciCalculator):
         if rdatas is None:
             amici_solver.setSensitivityOrder(sensi_order)
             x_dct = copy.deepcopy(x_dct)
-            # fill dummy values for the inner parameters so AMICI gets valid
-            # parameter values during simulation (actual values don't matter
-            # for the binary likelihood, but parameters must be set)
-            x_dct.update(
-                {
-                    xid: x.dummy_value
-                    for xid, x in self.inner_problem.xs.items()
-                }
-            )
             fill_in_parameters(
                 edatas=edatas,
                 problem_parameters=x_dct,
@@ -204,32 +206,53 @@ class BinaryAmiciCalculator(AmiciCalculator):
         nllh = self.inner_solver.calculate_nllh(self.inner_problem, sim, x_inner)
 
         inner_result[FVAL] = nllh
-        inner_result[INNER_PARAMETERS] = {
-            xid: x.value for xid, x in self.inner_problem.xs.items()
-        }
+        inner_result[INNER_PARAMETERS] = np.array(
+            [
+                self.inner_problem.xs[xid].value
+                for xid in self.inner_problem.get_x_ids()
+            ]
+        )
 
         # --- outer gradient ---
-        if 1 in sensi_orders:
-            sy = [rdata[AMICI_SY] for rdata in rdatas]
-
-            # build par_sim_ids from parameter mapping
-            # (first condition's mapping is representative when same_plists)
-            par_sim_ids = list(x_ids)  # fallback: assume sim == opt ids
-            if parameter_mapping is not None:
-                try:
-                    par_sim_ids = list(
-                        parameter_mapping[0].map_sim_var.keys()
+        if sensi_order > 0:
+            if (
+                amici_solver.getSensitivityMethod()
+                == amici.SensitivityMethod_forward
+            ):
+                sy = [rdata[AMICI_SY] for rdata in rdatas]
+            elif (
+                amici_solver.getSensitivityMethod()
+                == amici.SensitivityMethod_adjoint
+            ):
+                y = self.inner_solver._extract_y(self.inner_problem, sim)
+                n_equal_label = int(
+                    np.sum(np.abs(y - self.inner_problem.labels) < 1e-12)
+                )
+                if n_equal_label:
+                    logger.warning(
+                        "Binary adjoint sensitivity reconstruction drops "
+                        "gradient contributions for %d measurements where "
+                        "simulated y equals the binary label. Use forward "
+                        "sensitivities to check those conditions.",
+                        n_equal_label,
                     )
-                except (IndexError, AttributeError, TypeError):
-                    pass
+                sy = list(get_sensitivities_from_adjoint_gradient(rdatas, edatas))
+            else:
+                raise ValueError(
+                    "Unsupported AMICI sensitivity method for binary "
+                    "hierarchical gradients."
+                )
 
             snllh = self.inner_solver.calculate_gradients(
                 problem=self.inner_problem,
                 sim=sim,
                 sy=sy,
                 x_inner=x_inner,
+                parameter_mapping=parameter_mapping,
                 par_opt_ids=list(x_ids),
-                par_sim_ids=par_sim_ids,
+                par_sim_ids=list(amici_model.getParameterIds()),
+                par_edatas_indices=[edata.plist for edata in edatas],
+                snllh=snllh,
             )
             inner_result[GRAD] = snllh
 

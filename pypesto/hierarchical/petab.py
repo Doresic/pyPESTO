@@ -21,6 +21,7 @@ from petab.v1.C import UPPER_BOUND as PETAB_UPPER_BOUND
 from petab.v1.observables import get_formula_placeholders
 
 from ..C import (
+    BINARY,
     CENSORING_BOUNDS,
     CENSORING_TYPES,
     INNER_PARAMETER_BOUNDS,
@@ -581,6 +582,7 @@ def validate_observable_data_types(petab_problem: petab.Problem) -> None:
         SEMIQUANTITATIVE,
         RELATIVE,
         ORDINAL,
+        BINARY,
     ] + CENSORING_TYPES
 
     # Get observables across data types
@@ -647,6 +649,8 @@ def validate_observable_data_types(petab_problem: petab.Problem) -> None:
             if data_type == other_data_type or (
                 data_type in CENSORING_TYPES
                 and other_data_type in CENSORING_TYPES
+            ) or (
+                {data_type, other_data_type} == {RELATIVE, BINARY}
             ):
                 continue
             if observables & other_observables:

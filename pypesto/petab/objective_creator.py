@@ -28,7 +28,7 @@ from petab.v1.models.sbml_model import SbmlModel
 from petab.v1.parameter_mapping import ParMappingDictQuadruple
 from petab.v1.simulate import Simulator
 
-from ..C import CENSORED, CONDITION_SEP, LIN, ORDINAL, SEMIQUANTITATIVE
+from ..C import BINARY, CENSORED, CONDITION_SEP, LIN, ORDINAL, SEMIQUANTITATIVE
 from ..hierarchical.inner_calculator_collector import InnerCalculatorCollector
 from ..objective import AmiciObjective, ObjectiveBase, PetabSimulatorObjective
 from ..objective.amici import AmiciObjectBuilder
@@ -372,15 +372,15 @@ class AmiciObjectiveCreator(ObjectiveCreator, AmiciObjectBuilder):
             self._non_quantitative_data_types is not None
             and any(
                 data_type in self._non_quantitative_data_types
-                for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE]
+                for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE, BINARY]
             )
             and max_sensi_order is not None
             and max_sensi_order > 1
         ):
             raise ValueError(
-                "Ordinal, censored and semiquantitative data cannot be "
+                "Ordinal, censored, semiquantitative and binary data cannot be "
                 "used with second order sensitivities. Use a up to first order "
-                "method or disable ordinal, censored and semiquantitative "
+                "method or disable ordinal, censored, semiquantitative and binary "
             )
 
         # create objective

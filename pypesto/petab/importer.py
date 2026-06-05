@@ -22,6 +22,7 @@ except ImportError:
 
 from ..C import (
     AMICI,
+    BINARY,
     CENSORED,
     ORDINAL,
     ORDINAL_OPTIONS,
@@ -132,12 +133,12 @@ class PetabImporter:
             self._non_quantitative_data_types is not None
             and any(
                 data_type in self._non_quantitative_data_types
-                for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE]
+                for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE, BINARY]
             )
             and not self._hierarchical
         ):
             raise ValueError(
-                "Ordinal, censored and semiquantitative data require "
+                "Ordinal, censored, semiquantitative and binary data require "
                 "hierarchical optimization to be enabled.",
             )
 

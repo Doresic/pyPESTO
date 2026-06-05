@@ -5,20 +5,19 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import pandas as pd
 
+from ..base_problem import AmiciInnerProblem
 from .parameter import BinaryInnerParameter, BinaryInnerParameterType
 
 try:
     import amici
     import petab.v1 as petab
     from petab.v1.C import (
-        LOWER_BOUND,
         OBSERVABLE_ID,
         OBSERVABLE_PARAMETERS,
-        PARAMETER_SEPARATOR,
         SIMULATION_CONDITION_ID,
         TIME,
-        UPPER_BOUND,
     )
 except ImportError:
     pass
@@ -29,9 +28,15 @@ logger = logging.getLogger(__name__)
 BINARY_MEASUREMENT_TYPE = "BINARY"
 #: PEtab column name for measurement type.
 MEASUREMENT_TYPE_COL = "measurementType"
+#: PEtab column assigning binary measurements to intercept groups.
+BINARY_ALPHA_GROUP_COL = "binaryAlphaGroupId"
+#: Optional PEtab column assigning binary measurements to slope groups.
+BINARY_BETA_GROUP_COL = "binaryBetaGroupId"
+#: Default beta group if no beta grouping column is present.
+DEFAULT_BETA_GROUP_ID = "global"
 
 
-class BinaryInnerProblem:
+class BinaryInnerProblem(AmiciInnerProblem):
     """Inner optimization problem for binary (Bernoulli) data.
 
     Stores all static information needed by :class:`BinaryInnerSolver`:
@@ -45,10 +50,12 @@ class BinaryInnerProblem:
         parameters (all α groups and the single β).
     alpha_ids:
         Ordered list of alpha parameter IDs (α_0, α_1, …, α_{G-1}).
-    beta_id:
-        The shared slope parameter ID.
+    beta_ids:
+        Ordered list of beta parameter IDs (β_0, β_1, …, β_{B-1}).
     n_alpha:
         Number of distinct alpha groups G.
+    n_beta:
+        Number of distinct beta groups B.
     n_meas:
         Total number of binary measurements.
     cond_ixs:
@@ -65,6 +72,9 @@ class BinaryInnerProblem:
     alpha_group_ixs:
         Shape ``(n_meas,)`` int — which alpha parameter (0-based index
         into ``alpha_ids``) applies to each binary measurement.
+    beta_group_ixs:
+        Shape ``(n_meas,)`` int — which beta parameter (0-based index
+        into ``beta_ids``) applies to each binary measurement.
     edatas:
         AMICI ``ExpData`` objects (same list as passed to AMICI).
     """
@@ -77,16 +87,17 @@ class BinaryInnerProblem:
         obs_ixs: np.ndarray,
         labels: np.ndarray,
         alpha_group_ixs: np.ndarray,
+        beta_group_ixs: np.ndarray,
         alpha_ids: list[str],
-        beta_id: str,
+        beta_ids: list[str],
         edatas: list,
+        data: list[np.ndarray],
     ):
-        self.xs: dict[str, BinaryInnerParameter] = {
-            x.inner_parameter_id: x for x in xs
-        }
+        super().__init__(xs=xs, data=data, edatas=edatas)
         self.alpha_ids: list[str] = list(alpha_ids)
-        self.beta_id: str = beta_id
+        self.beta_ids: list[str] = list(beta_ids)
         self.n_alpha: int = len(alpha_ids)
+        self.n_beta: int = len(beta_ids)
         self.n_meas: int = int(len(labels))
 
         self.cond_ixs: np.ndarray = np.asarray(cond_ixs, dtype=int)
@@ -94,6 +105,7 @@ class BinaryInnerProblem:
         self.obs_ixs: np.ndarray = np.asarray(obs_ixs, dtype=int)
         self.labels: np.ndarray = np.asarray(labels, dtype=float)
         self.alpha_group_ixs: np.ndarray = np.asarray(alpha_group_ixs, dtype=int)
+        self.beta_group_ixs: np.ndarray = np.asarray(beta_group_ixs, dtype=int)
 
         self.edatas = edatas
 
@@ -101,23 +113,32 @@ class BinaryInnerProblem:
     # Convenience accessors
     # ------------------------------------------------------------------
 
-    def get_x_ids(self) -> list[str]:
-        """Return all inner parameter IDs."""
-        return list(self.xs.keys())
+    def get_interpretable_x_ids(self) -> list[str]:
+        """Return interpretable inner parameter IDs."""
+        return []
 
-    def is_empty(self) -> bool:
-        """Return ``True`` if no binary measurements exist."""
-        return self.n_meas == 0
+    def get_interpretable_x_bounds(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return bounds for interpretable inner parameters."""
+        return np.asarray([]), np.asarray([])
+
+    def get_interpretable_x_scales(self) -> list[str]:
+        """Return scales for interpretable inner parameters."""
+        return []
 
     def get_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         """Return (lb, ub) arrays for inner parameters.
 
-        Order: ``[α_0, …, α_{G-1}, β]``.
+        Order: ``[α_0, …, α_{G-1}, β_0, …, β_{B-1}]``.
         """
-        ids = self.alpha_ids + [self.beta_id]
+        ids = self.alpha_ids + self.beta_ids
         lb = np.array([self.xs[i].lb for i in ids])
         ub = np.array([self.xs[i].ub for i in ids])
         return lb, ub
+
+    def initialize(self) -> None:
+        """Initialize the subproblem."""
+        for x in self.xs.values():
+            x.initialize()
 
     # ------------------------------------------------------------------
     # Factory
@@ -180,12 +201,16 @@ class BinaryInnerProblem:
             list(edata.getTimepoints()) for edata in edatas
         ]
 
-        # --- parse rows ---
-        alpha_id_to_group: dict[str, int] = {}
-        beta_id: str | None = None
+        cls._validate_binary_measurements(binary_df)
 
-        rows: list[tuple[int, int, int, float, int, str]] = []
-        # each entry: (cond_ix, time_ix, obs_ix, label, alpha_group_ix, alpha_id)
+        # --- parse rows ---
+        alpha_group_to_ix: dict[str, int] = {}
+        beta_group_to_ix: dict[str, int] = {}
+
+        rows: list[tuple[int, int, int, float, int, int, str, str]] = []
+        # each entry:
+        # (cond_ix, time_ix, obs_ix, label, alpha_group_ix, beta_group_ix,
+        #  alpha_group_id, beta_group_id)
 
         for _, row in binary_df.iterrows():
             cond_id = str(row[SIMULATION_CONDITION_ID])
@@ -193,24 +218,14 @@ class BinaryInnerProblem:
             time = float(row[TIME])
             label = float(row["measurement"])
 
-            obs_params_raw = str(row[OBSERVABLE_PARAMETERS])
-            parts = [p.strip() for p in obs_params_raw.split(PARAMETER_SEPARATOR)]
-            if len(parts) < 2:
-                raise ValueError(
-                    f"Binary measurement for condition '{cond_id}' has "
-                    f"observableParameters='{obs_params_raw}'. Expected two "
-                    "semicolon-separated IDs: 'alpha_id;beta_id'."
-                )
-            alpha_id, b_id = parts[0], parts[1]
-
-            if beta_id is None:
-                beta_id = b_id
-            elif beta_id != b_id:
-                raise ValueError(
-                    f"Multiple beta parameter IDs found in binary "
-                    f"measurements: '{beta_id}' and '{b_id}'. Only one beta "
-                    "parameter is supported."
-                )
+            alpha_group_id = str(row[BINARY_ALPHA_GROUP_COL]).strip()
+            beta_group_id = (
+                str(row[BINARY_BETA_GROUP_COL]).strip()
+                if BINARY_BETA_GROUP_COL in binary_df.columns
+                and not pd.isna(row[BINARY_BETA_GROUP_COL])
+                and str(row[BINARY_BETA_GROUP_COL]).strip()
+                else DEFAULT_BETA_GROUP_ID
+            )
 
             if cond_id not in cond_id_to_ix:
                 raise KeyError(
@@ -239,14 +254,26 @@ class BinaryInnerProblem:
                         f"found in edata timepoints {ts}."
                     ) from None
 
-            if alpha_id not in alpha_id_to_group:
-                alpha_id_to_group[alpha_id] = len(alpha_id_to_group)
-            alpha_group_ix = alpha_id_to_group[alpha_id]
+            if alpha_group_id not in alpha_group_to_ix:
+                alpha_group_to_ix[alpha_group_id] = len(alpha_group_to_ix)
+            alpha_group_ix = alpha_group_to_ix[alpha_group_id]
 
-            rows.append((cond_ix, time_ix, obs_ix, label, alpha_group_ix, alpha_id))
+            if beta_group_id not in beta_group_to_ix:
+                beta_group_to_ix[beta_group_id] = len(beta_group_to_ix)
+            beta_group_ix = beta_group_to_ix[beta_group_id]
 
-        if beta_id is None:
-            raise ValueError("No beta parameter found in binary measurements.")
+            rows.append(
+                (
+                    cond_ix,
+                    time_ix,
+                    obs_ix,
+                    label,
+                    alpha_group_ix,
+                    beta_group_ix,
+                    alpha_group_id,
+                    beta_group_id,
+                )
+            )
 
         # --- build flat arrays ---
         n_meas = len(rows)
@@ -258,26 +285,23 @@ class BinaryInnerProblem:
         obs_ixs = np.array([r[2] for r in rows], dtype=int)
         labels = np.array([r[3] for r in rows], dtype=float)
         alpha_group_ixs = np.array([r[4] for r in rows], dtype=int)
+        beta_group_ixs = np.array([r[5] for r in rows], dtype=int)
 
-        # ordered alpha IDs (stable: insertion order of alpha_id_to_group)
-        alpha_ids: list[str] = sorted(
-            alpha_id_to_group.keys(), key=lambda k: alpha_id_to_group[k]
+        # ordered inner parameter IDs (stable: insertion order of group maps)
+        alpha_group_ids: list[str] = sorted(
+            alpha_group_to_ix.keys(), key=lambda k: alpha_group_to_ix[k]
         )
-
-        # --- bounds from parameters.tsv ---
-        params_df = petab_problem.parameter_df
-
-        def _get_bounds(pid: str) -> tuple[float, float]:
-            if pid in params_df.index:
-                r = params_df.loc[pid]
-                lb = float(r.get(LOWER_BOUND, -np.inf))
-                ub = float(r.get(UPPER_BOUND, np.inf))
-            else:
-                lb, ub = -np.inf, np.inf
-            return lb, ub
+        beta_group_ids: list[str] = sorted(
+            beta_group_to_ix.keys(), key=lambda k: beta_group_to_ix[k]
+        )
+        alpha_ids = [f"alpha__{gid}" for gid in alpha_group_ids]
+        beta_ids = [f"beta__{gid}" for gid in beta_group_ids]
 
         # --- build ixs (per-condition bool arrays) ---
         n_timepoints_per_cond = [len(ts) for ts in edata_timepoints]
+        data = [
+            amici.numpy.ExpDataView(edata)["observedData"] for edata in edatas
+        ]
 
         def _build_ixs(meas_mask: np.ndarray) -> list[np.ndarray]:
             ixs = [
@@ -290,29 +314,25 @@ class BinaryInnerProblem:
 
         # --- build BinaryInnerParameter objects ---
         xs: list[BinaryInnerParameter] = []
-        for aid in alpha_ids:
-            lb, ub = _get_bounds(aid)
-            mask = np.array([r[5] == aid for r in rows])
+        for gid, aid in zip(alpha_group_ids, alpha_ids, strict=True):
+            mask = np.array([r[6] == gid for r in rows])
             xs.append(
                 BinaryInnerParameter(
                     inner_parameter_id=aid,
                     inner_parameter_type=BinaryInnerParameterType.ALPHA,
-                    lb=lb,
-                    ub=ub,
                     ixs=_build_ixs(mask),
                 )
             )
 
-        lb_beta, ub_beta = _get_bounds(beta_id)
-        xs.append(
-            BinaryInnerParameter(
-                inner_parameter_id=beta_id,
-                inner_parameter_type=BinaryInnerParameterType.BETA,
-                lb=lb_beta,
-                ub=ub_beta,
-                ixs=_build_ixs(np.ones(n_meas, dtype=bool)),
+        for gid, bid in zip(beta_group_ids, beta_ids, strict=True):
+            mask = np.array([r[7] == gid for r in rows])
+            xs.append(
+                BinaryInnerParameter(
+                    inner_parameter_id=bid,
+                    inner_parameter_type=BinaryInnerParameterType.BETA,
+                    ixs=_build_ixs(mask),
+                )
             )
-        )
 
         return cls(
             xs=xs,
@@ -321,7 +341,54 @@ class BinaryInnerProblem:
             obs_ixs=obs_ixs,
             labels=labels,
             alpha_group_ixs=alpha_group_ixs,
+            beta_group_ixs=beta_group_ixs,
             alpha_ids=alpha_ids,
-            beta_id=beta_id,
+            beta_ids=beta_ids,
             edatas=edatas,
+            data=data,
         )
+
+    @staticmethod
+    def _validate_binary_measurements(binary_df: "pd.DataFrame") -> None:
+        """Validate binary measurement-table conventions."""
+        labels = binary_df["measurement"].astype(float)
+        invalid_labels = ~labels.isin([0.0, 1.0])
+        if invalid_labels.any():
+            bad = binary_df.loc[
+                invalid_labels,
+                [SIMULATION_CONDITION_ID, OBSERVABLE_ID, "measurement"],
+            ].head()
+            raise ValueError(
+                "Binary measurements must have measurement values 0 or 1. "
+                f"Invalid examples:\n{bad}"
+            )
+
+        if BINARY_ALPHA_GROUP_COL not in binary_df.columns:
+            raise ValueError(
+                f"Binary measurements require column "
+                f"'{BINARY_ALPHA_GROUP_COL}' to define alpha sharing."
+            )
+        alpha_groups = binary_df[BINARY_ALPHA_GROUP_COL]
+        if alpha_groups.isna().any() or (
+            alpha_groups.astype(str).str.strip() == ""
+        ).any():
+            raise ValueError(
+                f"Binary measurements require non-empty "
+                f"'{BINARY_ALPHA_GROUP_COL}' values."
+            )
+
+        if OBSERVABLE_PARAMETERS in binary_df.columns:
+            obs_pars = binary_df[OBSERVABLE_PARAMETERS]
+            has_obs_pars = obs_pars.notna() & (
+                obs_pars.astype(str).str.strip() != ""
+            )
+            if has_obs_pars.any():
+                bad = binary_df.loc[
+                    has_obs_pars,
+                    [SIMULATION_CONDITION_ID, OBSERVABLE_ID, OBSERVABLE_PARAMETERS],
+                ].head()
+                raise ValueError(
+                    "Binary measurements must not use observableParameters; "
+                    "alpha/beta are binary inner parameters. Invalid examples:"
+                    f"\n{bad}"
+                )

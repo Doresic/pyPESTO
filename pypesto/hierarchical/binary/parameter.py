@@ -67,3 +67,7 @@ class BinaryInnerParameter:
         self.ixs: list[np.ndarray] | None = ixs
         self.dummy_value: float = dummy_value
         self.value: float = dummy_value
+
+    def initialize(self) -> None:
+        """Reset the parameter to its dummy value."""
+        self.value = self.dummy_value

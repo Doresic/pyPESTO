@@ -95,6 +95,7 @@ PETAB = "petab"
 INNER_PARAMETERS = "inner_parameters"
 PARAMETER_TYPE = "parameterType"
 RELATIVE = "relative"
+BINARY = "BINARY"
 
 
 class InnerParameterType(StrEnum):

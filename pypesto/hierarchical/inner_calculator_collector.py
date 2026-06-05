@@ -19,6 +19,7 @@ from ..C import (
     AMICI_SSIGMAZ,
     AMICI_SY,
     AMICI_Y,
+    BINARY,
     CENSORED,
     FVAL,
     GRAD,
@@ -56,6 +57,7 @@ except ImportError:
     ParameterMapping = None
 
 from .ordinal import OrdinalCalculator, OrdinalInnerSolver, OrdinalProblem
+from .binary import BinaryAmiciCalculator, BinaryInnerProblem
 from .relative import RelativeAmiciCalculator, RelativeInnerProblem
 from .semiquantitative import (
     SemiquantCalculator,
@@ -191,17 +193,28 @@ class InnerCalculatorCollector(AmiciCalculator):
                 semiquant_problem.get_semiquant_observable_ids()
             )
 
+        if BINARY in self.data_types:
+            binary_inner_problem = BinaryInnerProblem.from_petab_amici(
+                petab_problem, model, edatas
+            )
+            binary_calculator = BinaryAmiciCalculator(
+                inner_problem=binary_inner_problem
+            )
+            self.inner_calculators.append(binary_calculator)
+
         if self.data_types - {
             RELATIVE,
             ORDINAL,
             CENSORED,
             SEMIQUANTITATIVE,
+            BINARY,
         }:
             unsupported_data_types = self.data_types - {
                 RELATIVE,
                 ORDINAL,
                 CENSORED,
                 SEMIQUANTITATIVE,
+                BINARY,
             }
             raise NotImplementedError(
                 f"Data types {unsupported_data_types} are not supported."
@@ -345,7 +358,7 @@ class InnerCalculatorCollector(AmiciCalculator):
 
         if mode == MODE_RES and any(
             data_type in self.data_types
-            for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE]
+            for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE, BINARY]
         ):
             raise NotImplementedError(
                 f"Mode {mode} is not implemented for ordinal, censored or semi-quantitative data. "
@@ -354,7 +367,7 @@ class InnerCalculatorCollector(AmiciCalculator):
 
         if 2 in sensi_orders and any(
             data_type in self.data_types
-            for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE]
+            for data_type in [ORDINAL, CENSORED, SEMIQUANTITATIVE, BINARY]
         ):
             raise ValueError(
                 "Hessian and FIM are not implemented for ordinal, censored or semi-quantitative data. "

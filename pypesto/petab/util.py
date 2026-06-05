@@ -13,6 +13,7 @@ except ImportError:
     petab = None
 
 from ..C import (
+    BINARY,
     CENSORED,
     CENSORING_TYPES,
     MEASUREMENT_TYPE,
@@ -49,7 +50,7 @@ def get_petab_non_quantitative_data_types(
     meas_df = petab_problem.measurement_df
     if MEASUREMENT_TYPE in meas_df.columns:
         petab_data_types = meas_df[MEASUREMENT_TYPE].unique()
-        for data_type in [ORDINAL, SEMIQUANTITATIVE] + CENSORING_TYPES:
+        for data_type in [ORDINAL, SEMIQUANTITATIVE, BINARY] + CENSORING_TYPES:
             if data_type in petab_data_types:
                 non_quantitative_data_types.add(
                     CENSORED if data_type in CENSORING_TYPES else data_type
