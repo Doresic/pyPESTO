@@ -399,8 +399,14 @@ def get_sensitivities_from_adjoint_gradient(
     sensitivities can be calculated from the adjoint gradient as:
     y_sensitivities = -sllh / ((y - data) / sigma_y) for each condition.
 
-    Only valid for single-timepoint, single-observable-per-condition models
+    Only valid for single-timepoint, single-observed-point-per-condition models
     (e.g. the Frohlich model).
+
+    Conditions are grouped by ``len(rdata.sllh)`` (i.e. by plist length) so each
+    homogeneous group is reconstructed in a single vectorized block. This
+    supports models that mix data types with different plists across conditions
+    (e.g. a joint relative + binary problem), where a single rectangular stack of
+    ``sllh`` would fail with an inhomogeneous-shape error.
 
     Parameters
     ----------
@@ -412,11 +418,14 @@ def get_sensitivities_from_adjoint_gradient(
     Returns
     -------
     y_sensitivities:
-        List of sensitivities for each timepoint, shaped like rdata.sy.
+        A list with one entry per condition, each shaped
+        ``(1, n_par_cond, n_observables)`` like AMICI's forward ``rdata.sy``
+        (``n_par_cond`` may differ between conditions for mixed-data-type models).
     """
     n_observables = rdatas[0].y.shape[1]
     n_conditions = len(rdatas)
-    n_parameters = len(rdatas[0].sllh)
+
+    # single observed observable per condition (first non-nan)
     obs_idx_per_cond = np.array(
         [
             np.where(
@@ -432,14 +441,12 @@ def get_sensitivities_from_adjoint_gradient(
             for rdata, obs_idx in zip(rdatas, obs_idx_per_cond)
         ]
     )
-    wrong_grad = -np.array([rdata["sllh"] for rdata in rdatas])
     sigma_y = np.array(
         [
             rdata[AMICI_SIGMAY][0][obs_idx]
             for rdata, obs_idx in zip(rdatas, obs_idx_per_cond)
         ]
     )
-
     data = np.array(
         [
             amici.numpy.ExpDataView(edata)["observedData"][0][obs_idx]
@@ -451,14 +458,18 @@ def get_sensitivities_from_adjoint_gradient(
     # Account for zero residuals. Does not matter for the result, but avoids
     # division by zero.
     residual[residual == 0] = 1
-    y_sensitivities = np.divide(wrong_grad, residual[:, np.newaxis])
 
-    # reshape to AMICI rdata.sy shape: (n_conditions, n_timepoints, n_parameters, n_observables)
-    y_sensitivities_correct_dim = np.full(
-        (n_conditions, 1, n_parameters, n_observables), np.nan
-    )
-
-    y_sensitivities_correct_dim[
-        np.arange(n_conditions), 0, :, obs_idx_per_cond
-    ] = y_sensitivities
-    return y_sensitivities_correct_dim
+    # Group conditions by sllh length so each homogeneous group can be stacked
+    # rectangularly and reconstructed vectorized (no per-condition Python loop
+    # over the math). The result mirrors forward rdata.sy: a per-condition list.
+    sllh_lengths = np.array([len(rdata["sllh"]) for rdata in rdatas])
+    y_sensitivities: list = [None] * n_conditions
+    for length in np.unique(sllh_lengths):
+        group = np.where(sllh_lengths == length)[0]
+        wrong_grad = -np.array([rdatas[ci]["sllh"] for ci in group])  # (n_group, length)
+        sy_group = wrong_grad / residual[group][:, np.newaxis]  # (n_group, length)
+        block = np.full((len(group), 1, length, n_observables), np.nan)
+        block[np.arange(len(group)), 0, :, obs_idx_per_cond[group]] = sy_group
+        for gi, ci in enumerate(group):
+            y_sensitivities[ci] = block[gi]
+    return y_sensitivities

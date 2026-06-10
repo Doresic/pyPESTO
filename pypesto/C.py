@@ -209,6 +209,14 @@ SPLINE_APPROXIMATION_OPTIONS = [
     REGULARIZATION_FACTOR,
 ]
 
+###############################################################################
+# BINARY (QUALITATIVE) DATA
+
+USE_FIRTH = "use_firth"
+BINARY_OPTIONS = [
+    USE_FIRTH,
+]
+
 MIN_SIM_RANGE = 1e-16
 
 SPLINE_PAR_TYPE = "spline"

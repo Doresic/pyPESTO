@@ -20,6 +20,7 @@ from ..C import (
     AMICI_SY,
     AMICI_Y,
     BINARY,
+    BINARY_OPTIONS,
     CENSORED,
     FVAL,
     GRAD,
@@ -37,6 +38,7 @@ from ..C import (
     SPLINE_KNOTS,
     SPLINE_RATIO,
     SRES,
+    USE_FIRTH,
     ModeType,
 )
 from ..objective.amici.amici_calculator import AmiciCalculator
@@ -194,11 +196,18 @@ class InnerCalculatorCollector(AmiciCalculator):
             )
 
         if BINARY in self.data_types:
+            binary_inner_options = {
+                key: value
+                for key, value in inner_options.items()
+                if key in BINARY_OPTIONS
+            }
+            use_firth = binary_inner_options.get(USE_FIRTH, True)
             binary_inner_problem = BinaryInnerProblem.from_petab_amici(
                 petab_problem, model, edatas
             )
             binary_calculator = BinaryAmiciCalculator(
-                inner_problem=binary_inner_problem
+                inner_problem=binary_inner_problem,
+                use_firth=use_firth,
             )
             self.inner_calculators.append(binary_calculator)
 
@@ -232,6 +241,7 @@ class InnerCalculatorCollector(AmiciCalculator):
             if (
                 key not in ORDINAL_OPTIONS
                 and key not in SPLINE_APPROXIMATION_OPTIONS
+                and key not in BINARY_OPTIONS
             ):
                 raise ValueError(f"Unknown inner option {key}.")
 

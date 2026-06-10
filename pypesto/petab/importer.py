@@ -23,6 +23,7 @@ except ImportError:
 from ..C import (
     AMICI,
     BINARY,
+    BINARY_OPTIONS,
     CENSORED,
     ORDINAL,
     ORDINAL_OPTIONS,
@@ -199,7 +200,12 @@ class PetabImporter:
     def validate_inner_options(self):
         """Validate the inner options."""
         for key in self.inner_options:
-            if key not in ORDINAL_OPTIONS + SPLINE_APPROXIMATION_OPTIONS:
+            if (
+                key
+                not in ORDINAL_OPTIONS
+                + SPLINE_APPROXIMATION_OPTIONS
+                + BINARY_OPTIONS
+            ):
                 raise ValueError(f"Unknown inner option {key}.")
 
     def check_gradients(

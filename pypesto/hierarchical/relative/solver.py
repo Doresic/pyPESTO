@@ -269,17 +269,6 @@ class RelativeInnerSolver(InnerSolver):
                 mask=x.ixs,
             )
 
-        n_parameters = len(ssim[0])
-        sim_to_opt_indices = np.zeros(n_parameters, dtype=int)
-
-        # Change par_edatas_indices to a list of dictionaries with
-        # keys being the value in par_edatas_indices and the values being the
-        # indices of the corresponding values -- for O(1) lookup of the indices.
-        par_edatas_indices = [
-            {par_edata_idx: idx for idx, par_edata_idx in enumerate(par_edata)}
-            for par_edata in par_edatas_indices
-        ]
-        # Do same for par_sim_ids and par_opt_ids
         par_sim_ids = {
             par_sim_id: idx for idx, par_sim_id in enumerate(par_sim_ids)
         }
@@ -287,36 +276,46 @@ class RelativeInnerSolver(InnerSolver):
             par_opt_id: idx for idx, par_opt_id in enumerate(par_opt_ids)
         }
 
-        for par_sim, par_opt in parameter_mapping[0].map_sim_var.items():
-            if not isinstance(par_opt, str):
-                continue
-            elif par_opt not in par_opt_ids:
-                continue
-            par_sim_idx = par_sim_ids[par_sim]
-            par_opt_idx = par_opt_ids[par_opt]
-            par_amici_rdata_idx = [
-                par_edata_indices[par_sim_idx]
-                for par_edata_indices in par_edatas_indices
-            ]
-            if all(
-                [
-                    par_amici_rdata_id == par_amici_rdata_idx[0]
-                    for par_amici_rdata_id in par_amici_rdata_idx
-                ]
-            ):
-                par_amici_rdata_idx = par_amici_rdata_idx[0]
-            sim_to_opt_indices[par_amici_rdata_idx] = int(par_opt_idx)
+        # Group conditions by their plist so each homogeneous group uses a
+        # consistent sim->opt mapping. Single-data-type models have one group
+        # (identical to before); mixed-data-type models (e.g. joint relative +
+        # binary) have one group per distinct plist, which avoids the length
+        # mismatch from assuming all conditions share condition 0's plist.
+        plist_groups: dict[tuple, list[int]] = {}
+        for cond_idx, par_edata in enumerate(par_edatas_indices):
+            plist_groups.setdefault(tuple(par_edata), []).append(cond_idx)
 
-        # compute gradients
-        for cond_idx, _ in enumerate(parameter_mapping):
-            gradient_for_cond = compute_nllh_gradient_for_condition(
-                data=relevant_data[cond_idx],
-                sim=sim[cond_idx],
-                ssim=ssim[cond_idx],
-                sigma=sigma[cond_idx],
-                ssigma=ssigma[cond_idx],
-            )
-            snllh[sim_to_opt_indices] += gradient_for_cond
+        for plist_key, cond_indices in plist_groups.items():
+            # O(1) lookup: model-parameter index -> position in this plist.
+            par_edata_lookup = {
+                par_edata_idx: idx
+                for idx, par_edata_idx in enumerate(plist_key)
+            }
+            sim_to_opt_indices = np.zeros(len(plist_key), dtype=int)
+            # All conditions in the group share this plist, so a representative
+            # condition's mapping applies to all of them.
+            rep_map_sim_var = parameter_mapping[cond_indices[0]].map_sim_var
+            for par_sim, par_opt in rep_map_sim_var.items():
+                if not isinstance(par_opt, str):
+                    continue
+                elif par_opt not in par_opt_ids:
+                    continue
+                par_sim_idx = par_sim_ids[par_sim]
+                if par_sim_idx not in par_edata_lookup:
+                    continue
+                sim_to_opt_indices[par_edata_lookup[par_sim_idx]] = int(
+                    par_opt_ids[par_opt]
+                )
+
+            for cond_idx in cond_indices:
+                gradient_for_cond = compute_nllh_gradient_for_condition(
+                    data=relevant_data[cond_idx],
+                    sim=sim[cond_idx],
+                    ssim=ssim[cond_idx],
+                    sigma=sigma[cond_idx],
+                    ssigma=ssigma[cond_idx],
+                )
+                snllh[sim_to_opt_indices] += gradient_for_cond
 
         return snllh
 
