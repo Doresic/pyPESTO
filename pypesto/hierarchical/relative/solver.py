@@ -291,21 +291,25 @@ class RelativeInnerSolver(InnerSolver):
                 par_edata_idx: idx
                 for idx, par_edata_idx in enumerate(plist_key)
             }
-            sim_to_opt_indices = np.zeros(len(plist_key), dtype=int)
-            # All conditions in the group share this plist, so a representative
-            # condition's mapping applies to all of them.
+            # Only plist columns that map to an estimated OUTER parameter
+            # contribute to snllh. Inner (sigma/scaling/offset) and fixed columns
+            # are excluded: previously they defaulted to opt-index 0 and, via numpy
+            # duplicate-index `+=` (last-write-wins), clobbered the FIRST outer
+            # parameter's gradient to ~0 (the inner sigma column -- ~0 at its
+            # optimum -- was written last). See Track-A gate0 diagnosis 2026-06-16.
             rep_map_sim_var = parameter_mapping[cond_indices[0]].map_sim_var
+            sim_positions: list[int] = []
+            opt_positions: list[int] = []
             for par_sim, par_opt in rep_map_sim_var.items():
-                if not isinstance(par_opt, str):
-                    continue
-                elif par_opt not in par_opt_ids:
+                if not isinstance(par_opt, str) or par_opt not in par_opt_ids:
                     continue
                 par_sim_idx = par_sim_ids[par_sim]
                 if par_sim_idx not in par_edata_lookup:
                     continue
-                sim_to_opt_indices[par_edata_lookup[par_sim_idx]] = int(
-                    par_opt_ids[par_opt]
-                )
+                sim_positions.append(par_edata_lookup[par_sim_idx])
+                opt_positions.append(par_opt_ids[par_opt])
+            sim_positions = np.asarray(sim_positions, dtype=int)
+            opt_positions = np.asarray(opt_positions, dtype=int)
 
             for cond_idx in cond_indices:
                 gradient_for_cond = compute_nllh_gradient_for_condition(
@@ -315,7 +319,9 @@ class RelativeInnerSolver(InnerSolver):
                     sigma=sigma[cond_idx],
                     ssigma=ssigma[cond_idx],
                 )
-                snllh[sim_to_opt_indices] += gradient_for_cond
+                # np.add.at accumulates correctly even when several sim params map
+                # to the same opt param (plain `snllh[idx] +=` would not).
+                np.add.at(snllh, opt_positions, gradient_for_cond[sim_positions])
 
         return snllh
 

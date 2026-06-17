@@ -106,8 +106,10 @@ class BinaryInnerProblem(AmiciInnerProblem):
         self.labels: np.ndarray = np.asarray(labels, dtype=float)
         self.alpha_group_ixs: np.ndarray = np.asarray(alpha_group_ixs, dtype=int)
         self.beta_group_ixs: np.ndarray = np.asarray(beta_group_ixs, dtype=int)
-
-        self.edatas = edatas
+        # NOTE: do NOT store `self.edatas = edatas` here. AMICI ExpData are SWIG objects, so
+        # keeping a reference makes the binary objective unpicklable and breaks MultiProcessEngine.
+        # The base AmiciInnerProblem (super().__init__ above) already extracts the data it needs
+        # and discards the edatas, matching the relative/ordinal inner problems.
 
     # ------------------------------------------------------------------
     # Convenience accessors
