@@ -20,6 +20,8 @@ from ..C import (
     AMICI_SY,
     AMICI_Y,
     BINARY,
+    BINARY_BETA_LB,
+    BINARY_BETA_UB,
     BINARY_OPTIONS,
     CENSORED,
     FVAL,
@@ -202,8 +204,10 @@ class InnerCalculatorCollector(AmiciCalculator):
                 if key in BINARY_OPTIONS
             }
             use_firth = binary_inner_options.get(USE_FIRTH, True)
+            beta_lb = binary_inner_options.get(BINARY_BETA_LB, -np.inf)
+            beta_ub = binary_inner_options.get(BINARY_BETA_UB, np.inf)
             binary_inner_problem = BinaryInnerProblem.from_petab_amici(
-                petab_problem, model, edatas
+                petab_problem, model, edatas, beta_lb=beta_lb, beta_ub=beta_ub
             )
             binary_calculator = BinaryAmiciCalculator(
                 inner_problem=binary_inner_problem,

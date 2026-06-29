@@ -152,6 +152,8 @@ class BinaryInnerProblem(AmiciInnerProblem):
         petab_problem: "petab.Problem",
         amici_model: "amici.Model",
         edatas: list,
+        beta_lb: float = -np.inf,
+        beta_ub: float = np.inf,
     ) -> "BinaryInnerProblem":
         """Construct from a PEtab problem and AMICI objects.
 
@@ -171,6 +173,15 @@ class BinaryInnerProblem(AmiciInnerProblem):
             The AMICI ``ExpData`` list in the same order as the
             simulations will be run.  ``edata.id`` must match PEtab
             ``simulationConditionId``.
+        beta_lb:
+            Lower bound applied to every BETA inner parameter (the shared
+            binary slope β). Default ``-inf`` (unconstrained). Box-constraining
+            β floors the outer θ-gradient ``β·Σ(p_i−z_i)·∂y_i/∂θ`` so the KO
+            data keeps informing θ instead of self-extinguishing as β→0.
+        beta_ub:
+            Upper bound applied to every BETA inner parameter. Default
+            ``+inf``. β<0 by convention, so ``β ∈ [−hi, −lo]`` enforces
+            ``|β| ∈ [lo, hi]``.
         """
         meas_df = petab_problem.measurement_df
 
@@ -332,6 +343,8 @@ class BinaryInnerProblem(AmiciInnerProblem):
                 BinaryInnerParameter(
                     inner_parameter_id=bid,
                     inner_parameter_type=BinaryInnerParameterType.BETA,
+                    lb=beta_lb,
+                    ub=beta_ub,
                     ixs=_build_ixs(mask),
                 )
             )
