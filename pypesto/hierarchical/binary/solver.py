@@ -6,7 +6,7 @@ import logging
 
 import numpy as np
 from scipy.optimize import minimize
-from scipy.special import expit  # σ(x) = 1 / (1 + exp(-x))
+from scipy.special import expit, log_ndtr, ndtr  # σ(η); log Φ(η); Φ(η)
 
 from ..base_solver import InnerSolver
 from ...objective.amici.amici_util import add_sim_grad_to_opt_grad
@@ -20,6 +20,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 LARGE_INNER_PARAMETER_WARNING_THRESHOLD = 50.0
+
+#: ½·log(2π); used by the probit log-pdf (log φ = −½η² − this).
+_LOG_SQRT_2PI = 0.5 * np.log(2.0 * np.pi)
 
 
 class BinaryInnerSolver(InnerSolver):
@@ -44,7 +47,7 @@ class BinaryInnerSolver(InnerSolver):
     directly from AMICI forward sensitivities.
     """
 
-    def __init__(self, use_firth: bool = True):
+    def __init__(self, use_firth: bool = True, binary_link: str = "logit"):
         """Construct the binary inner solver.
 
         Parameters
@@ -56,9 +59,23 @@ class BinaryInnerSolver(InnerSolver):
             separation, so the inner solve converges and the envelope-theorem
             outer gradient is valid. ``False`` recovers the plain unpenalised
             MLE (which can diverge under separation).
+        binary_link:
+            Link function for the Bernoulli mean ``p = link⁻¹(η)``.
+            ``"logit"`` (default) uses ``p = σ(η)``; ``"probit"`` uses
+            ``p = Φ(η)``. The choice is link-agnostic everywhere except the
+            ``_p`` / ``_score`` / ``_weight`` helpers and the Firth correction.
         """
         super().__init__()
         self.use_firth = use_firth
+        if binary_link not in ("logit", "probit"):
+            raise ValueError(
+                f"binary_link must be 'logit' or 'probit', got {binary_link!r}."
+            )
+        #: Link function for the Bernoulli mean ``p = link⁻¹(η)``. ``"logit"``
+        #: (σ, the default and original behaviour) or ``"probit"`` (Φ). All
+        #: link-specific math lives in the ``_p`` / ``_score`` / ``_weight``
+        #: dispatch helpers; everything else is link-agnostic.
+        self.binary_link = binary_link
 
     def initialize(self) -> None:
         """Initialize the solver."""
@@ -102,19 +119,26 @@ class BinaryInnerSolver(InnerSolver):
         ]
 
         x0 = np.zeros(n_inner)
+        link = self.binary_link
 
         def _nll_and_grad(x_inner: np.ndarray) -> tuple[float, np.ndarray]:
-            p = expit(X @ x_inner)
+            eta = X @ x_inner
+            p = self._p(eta, link)
             p_clip = np.clip(p, 1e-15, 1.0 - 1e-15)
             nll = -np.sum(z * np.log(p_clip) + (1.0 - z) * np.log(1.0 - p_clip))
-            resid_eff = p - z  # gradient weight per measurement
+            resid_eff = self._score(eta, z, link)  # gradient weight per meas.
             if self.use_firth:
-                # Firth: J = NLL - ½log|I|; score gains the -h(½-p) correction,
-                # h_i = w_i q_i the (weighted) leverages. Reparam-invariant penalty.
-                w = p * (1.0 - p)
+                # Firth: J = NLL - ½log|I|, I = XᵀWX. The penalty adds the
+                # general modified-score term  −½ w'(η) q  to the per-point
+                # score (q_i = leverage). For logit this is the byte-identical
+                # closed form −w q (½−p); probit uses the general ½ w' q.
+                w = self._weight(eta, link)
                 _, _, q, logdet = self._firth_info(X, w)
                 nll = nll - 0.5 * logdet
-                resid_eff = resid_eff - w * q * (0.5 - p)
+                if link == "logit":
+                    resid_eff = resid_eff - w * q * (0.5 - p)
+                else:
+                    resid_eff = resid_eff - 0.5 * self._weight_deriv(eta, link) * q
             return nll, X.T @ resid_eff
 
         result = minimize(
@@ -183,13 +207,14 @@ class BinaryInnerSolver(InnerSolver):
         y = self._extract_y(problem, sim)
         z = problem.labels
         X = self._design_matrix(problem, y)
-        p = expit(X @ x_inner)
+        eta = X @ x_inner
+        p = self._p(eta, self.binary_link)
         p_clip = np.clip(p, 1e-15, 1.0 - 1e-15)
         nllh = -np.sum(z * np.log(p_clip) + (1.0 - z) * np.log(1.0 - p_clip))
         if self.use_firth:
             # Outer FVAL must be the penalised objective so the envelope theorem
             # gives dF/dθ = ∂(NLL - ½log|I|)/∂θ cleanly.
-            w = p * (1.0 - p)
+            w = self._weight(eta, self.binary_link)
             _, _, _, logdet = self._firth_info(X, w)
             nllh = nllh - 0.5 * logdet
         return float(nllh)
@@ -262,20 +287,27 @@ class BinaryInnerSolver(InnerSolver):
         X = self._design_matrix(problem, y)
         beta = x_inner[problem.n_alpha :]
         beta_for_meas = beta[problem.beta_group_ixs]
-        p = expit(X @ x_inner)
+        eta = X @ x_inner
+        link = self.binary_link
+        p = self._p(eta, link)
 
-        # Per-measurement gradient weight. Unpenalised term: (p-z)*beta.
-        scale = (p - z) * beta_for_meas
+        # Per-measurement gradient weight. Unpenalised term: score(η)*beta.
+        scale = self._score(eta, z, link) * beta_for_meas
         if self.use_firth:
             # Firth penalty depends on θ via the y-covariate, adding -½∂log|I|/∂θ
             # = -Σ_i c_i sy_i. General over beta-groups: g_i picks measurement i's
             # own beta-column of I^{-1}. (All vectorised; no parameter-dim loops.)
-            w = p * (1.0 - p)
+            # General c_i = w_i g_i + β_i·(½ w'_i q_i); logit keeps its byte-
+            # identical closed form, probit uses the general ½ w' q.
+            w = self._weight(eta, link)
             _, B, q, _ = self._firth_info(X, w)  # B = I^{-1} Xᵀ  (P×n)
             x_iinv = B.T  # (n, P) = X I^{-1}
             beta_cols = problem.n_alpha + np.arange(problem.n_beta)
             g = x_iinv[:, beta_cols][np.arange(problem.n_meas), problem.beta_group_ixs]
-            c = w * (g + 0.5 * beta_for_meas * (1.0 - 2.0 * p) * q)
+            if link == "logit":
+                c = w * (g + 0.5 * beta_for_meas * (1.0 - 2.0 * p) * q)
+            else:
+                c = w * g + beta_for_meas * (0.5 * self._weight_deriv(eta, link) * q)
             scale = scale - c
 
         sim_grads = [np.zeros(len(par_sim_ids)) for _ in sim]
@@ -299,6 +331,102 @@ class BinaryInnerSolver(InnerSolver):
             )
 
         return snllh
+
+    # ------------------------------------------------------------------
+    # Link dispatch (the ONLY link-specific math)
+    # ------------------------------------------------------------------
+    #
+    # All links share the same Bernoulli NLL and the same Firth penalty
+    # skeleton (½log|I|, I = XᵀWX). A link is fully specified by:
+    #     p(η)   the mean (probability of z=1),
+    #     s(η)   the per-point NLL score  ∂(−ℓ)/∂η,
+    #     w(η)   the Fisher working weight (the W in I = XᵀWX),
+    # plus, for the Firth correction, w'(η) = dw/dη.
+    #
+    #   logit:  p = σ(η);  s = p − z;   w = p(1−p);     w' = w(1−2p)
+    #   probit: p = Φ(η);  s = (1−z)·r̄ − z·r;
+    #                      w = φ²/(Φ(1−Φ)) = r·r̄;   w' = w(r̄ − r − 2η)
+    #   with r = φ/Φ and r̄ = φ/(1−Φ) (computed in the log domain for tail
+    #   stability; each grows only ~|η|, so no overflow).
+    # See _scratch/probit_link/PROBIT_DERIVATION.md for the full derivation.
+
+    @staticmethod
+    def _p(eta: np.ndarray, link: str = "logit") -> np.ndarray:
+        """Bernoulli mean ``p = link⁻¹(η)``.
+
+        ``"logit"`` → ``σ(η) = expit(η)`` (default, original behaviour);
+        ``"probit"`` → ``Φ(η)``.
+        """
+        if link == "logit":
+            return expit(eta)
+        if link == "probit":
+            return ndtr(eta)
+        raise ValueError(f"Unknown binary_link '{link}'.")
+
+    @staticmethod
+    def _score(
+        eta: np.ndarray, z: np.ndarray, link: str = "logit"
+    ) -> np.ndarray:
+        """Per-point NLL score ``s_i = ∂(−ℓ_i)/∂η_i``.
+
+        ``"logit"`` (canonical) → ``s = p − z``.
+        ``"probit"`` → ``s = (1−z)·φ/(1−Φ) − z·φ/Φ``.
+        """
+        if link == "logit":
+            return expit(eta) - z
+        if link == "probit":
+            r, rbar = BinaryInnerSolver._probit_mills(eta)
+            return (1.0 - z) * rbar - z * r
+        raise ValueError(f"Unknown binary_link '{link}'.")
+
+    @staticmethod
+    def _weight(eta: np.ndarray, link: str = "logit") -> np.ndarray:
+        """Fisher working weight ``w_i`` (the ``W`` in ``I = XᵀWX``).
+
+        ``"logit"`` → ``w = p(1 − p)``; ``"probit"`` → ``w = φ²/(Φ(1−Φ))``.
+        """
+        if link == "logit":
+            p = expit(eta)
+            return p * (1.0 - p)
+        if link == "probit":
+            r, rbar = BinaryInnerSolver._probit_mills(eta)
+            return r * rbar
+        raise ValueError(f"Unknown binary_link '{link}'.")
+
+    @staticmethod
+    def _weight_deriv(eta: np.ndarray, link: str = "logit") -> np.ndarray:
+        """Derivative of the working weight, ``w'(η) = dw/dη``.
+
+        Enters only the Firth modified-score correction (the general term is
+        ``½ w' q``). The logit production path keeps its byte-identical closed
+        form ``−w q (½−p)`` and does NOT call this; both branches are provided
+        so the helper is complete and directly finite-difference testable.
+
+        ``"logit"`` → ``w' = w(1 − 2p)``.
+        ``"probit"`` → ``w' = w(r̄ − r − 2η)`` with ``r=φ/Φ``, ``r̄=φ/(1−Φ)``.
+        """
+        if link == "logit":
+            p = expit(eta)
+            w = p * (1.0 - p)
+            return w * (1.0 - 2.0 * p)
+        if link == "probit":
+            r, rbar = BinaryInnerSolver._probit_mills(eta)
+            w = r * rbar
+            return w * (rbar - r - 2.0 * eta)
+        raise ValueError(f"Unknown binary_link '{link}'.")
+
+    @staticmethod
+    def _probit_mills(eta: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(r, r̄) = (φ/Φ, φ/(1−Φ))`` for the probit link.
+
+        Evaluated in the log domain via ``log_ndtr`` (``log Φ``) so both stay
+        finite and accurate deep into either tail. Note ``1−Φ(η) = Φ(−η)``,
+        so ``r̄ = φ/Φ(−η)``.
+        """
+        log_phi = -0.5 * eta * eta - _LOG_SQRT_2PI
+        r = np.exp(log_phi - log_ndtr(eta))       # φ/Φ
+        rbar = np.exp(log_phi - log_ndtr(-eta))   # φ/(1−Φ)
+        return r, rbar
 
     # ------------------------------------------------------------------
     # Private helpers

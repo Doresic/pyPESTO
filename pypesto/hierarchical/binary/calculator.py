@@ -67,6 +67,13 @@ class BinaryAmiciCalculator(AmiciCalculator):
     inner_solver:
         Solver for the inner logistic regression.  Defaults to a new
         :class:`BinaryInnerSolver`.
+    use_firth:
+        Forwarded to a default :class:`BinaryInnerSolver` (ignored if
+        ``inner_solver`` is given).
+    binary_link:
+        Link function (``"logit"`` default, or ``"probit"``) forwarded to a
+        default :class:`BinaryInnerSolver` (ignored if ``inner_solver`` is
+        given).
     """
 
     def __init__(
@@ -74,11 +81,14 @@ class BinaryAmiciCalculator(AmiciCalculator):
         inner_problem: BinaryInnerProblem,
         inner_solver: BinaryInnerSolver | None = None,
         use_firth: bool = True,
+        binary_link: str = "logit",
     ):
         super().__init__()
         self.inner_problem = inner_problem
         if inner_solver is None:
-            inner_solver = BinaryInnerSolver(use_firth=use_firth)
+            inner_solver = BinaryInnerSolver(
+                use_firth=use_firth, binary_link=binary_link
+            )
         self.inner_solver = inner_solver
         self._recalc_plists_and_scales = True
 

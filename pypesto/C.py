@@ -215,10 +215,12 @@ SPLINE_APPROXIMATION_OPTIONS = [
 USE_FIRTH = "use_firth"
 BINARY_BETA_LB = "binary_beta_lb"  # lower bound on the shared binary slope beta
 BINARY_BETA_UB = "binary_beta_ub"  # upper bound on the shared binary slope beta
+BINARY_LINK = "binary_link"  # "logit" (default) or "probit"
 BINARY_OPTIONS = [
     USE_FIRTH,
     BINARY_BETA_LB,
     BINARY_BETA_UB,
+    BINARY_LINK,
 ]
 
 MIN_SIM_RANGE = 1e-16

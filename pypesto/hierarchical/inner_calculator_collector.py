@@ -22,6 +22,7 @@ from ..C import (
     BINARY,
     BINARY_BETA_LB,
     BINARY_BETA_UB,
+    BINARY_LINK,
     BINARY_OPTIONS,
     CENSORED,
     FVAL,
@@ -206,12 +207,14 @@ class InnerCalculatorCollector(AmiciCalculator):
             use_firth = binary_inner_options.get(USE_FIRTH, True)
             beta_lb = binary_inner_options.get(BINARY_BETA_LB, -np.inf)
             beta_ub = binary_inner_options.get(BINARY_BETA_UB, np.inf)
+            binary_link = binary_inner_options.get(BINARY_LINK, "logit")
             binary_inner_problem = BinaryInnerProblem.from_petab_amici(
                 petab_problem, model, edatas, beta_lb=beta_lb, beta_ub=beta_ub
             )
             binary_calculator = BinaryAmiciCalculator(
                 inner_problem=binary_inner_problem,
                 use_firth=use_firth,
+                binary_link=binary_link,
             )
             self.inner_calculators.append(binary_calculator)
 
