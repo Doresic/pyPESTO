@@ -219,6 +219,13 @@ class BinaryInnerProblem(AmiciInnerProblem):
         # --- parse rows ---
         alpha_group_to_ix: dict[str, int] = {}
         beta_group_to_ix: dict[str, int] = {}
+        # Replicate-aware timepoint mapping. The edata stores replicates as REPEATED timepoint
+        # rows; hand out a DISTINCT row index per (condition, time value) so every replicate cell
+        # is marked in `ixs`. The old code mapped every steady-state (inf) replicate to the LAST
+        # row (len(ts)-1), so replicates collapsed onto one cell and the unmarked cells leaked into
+        # the quantitative (Gaussian) likelihood -> binary measurements double-counted -> biased.
+        tp_groups: dict[int, dict] = {}
+        tp_cursor: dict[int, dict] = {}
 
         rows: list[tuple[int, int, int, float, int, int, str, str]] = []
         # each entry:
@@ -255,17 +262,24 @@ class BinaryInnerProblem(AmiciInnerProblem):
             obs_ix = obs_id_to_ix[obs_id]
 
             ts = edata_timepoints[cond_ix]
-            if np.isinf(time):
-                # steady-state: last entry in timepoints list
-                time_ix = len(ts) - 1
-            else:
-                try:
-                    time_ix = ts.index(time)
-                except ValueError:
-                    raise ValueError(
-                        f"Timepoint {time} for condition '{cond_id}' not "
-                        f"found in edata timepoints {ts}."
-                    ) from None
+            # map each measurement (INCLUDING replicates) to its own distinct timepoint row
+            tkey = "inf" if np.isinf(time) else round(float(time), 12)
+            if cond_ix not in tp_groups:
+                grp: dict = {}
+                for _idx, _tv in enumerate(ts):
+                    _k = "inf" if np.isinf(_tv) else round(float(_tv), 12)
+                    grp.setdefault(_k, []).append(_idx)
+                tp_groups[cond_ix] = grp
+            avail = tp_groups[cond_ix].get(tkey, [])
+            if not avail:
+                raise ValueError(
+                    f"Timepoint {time} for condition '{cond_id}' not "
+                    f"found in edata timepoints {ts}."
+                )
+            cur = tp_cursor.setdefault(cond_ix, {}).get(tkey, 0)
+            # consecutive distinct rows for replicates; clamp if more meas than rows
+            time_ix = avail[cur] if cur < len(avail) else avail[-1]
+            tp_cursor[cond_ix][tkey] = cur + 1
 
             if alpha_group_id not in alpha_group_to_ix:
                 alpha_group_to_ix[alpha_group_id] = len(alpha_group_to_ix)
