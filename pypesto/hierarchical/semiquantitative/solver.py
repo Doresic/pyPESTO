@@ -289,7 +289,11 @@ class SemiquantInnerSolver(InnerSolver):
             par_opt_id: idx for idx, par_opt_id in enumerate(par_opt_ids)
         }
 
-        sim_to_opt_indices = np.zeros(n_parameters, dtype=int)
+        # Paired sensitivity-column and outer-parameter positions. Columns mapping to
+        # an inner parameter or to a fixed/numeric value are excluded: they have no
+        # outer gradient contribution.
+        sim_positions: list[int] = []
+        opt_positions: list[int] = []
         for par_sim, par_opt in parameter_mapping[0].map_sim_var.items():
             if not isinstance(par_opt, str):
                 continue
@@ -297,6 +301,13 @@ class SemiquantInnerSolver(InnerSolver):
                 continue
             par_sim_idx = par_sim_ids[par_sim]
             par_opt_idx = par_opt_ids[par_opt]
+            # A model parameter absent from some condition's plist has no sensitivity
+            # column for it.
+            if any(
+                par_sim_idx not in par_edata_indices
+                for par_edata_indices in par_edatas_indices
+            ):
+                continue
             par_amici_rdata_idx = [
                 par_edata_indices[par_sim_idx]
                 for par_edata_indices in par_edatas_indices
@@ -305,8 +316,12 @@ class SemiquantInnerSolver(InnerSolver):
                 par_amici_rdata_id == par_amici_rdata_idx[0]
                 for par_amici_rdata_id in par_amici_rdata_idx
             ):
-                par_amici_rdata_idx = par_amici_rdata_idx[0]
-            sim_to_opt_indices[par_amici_rdata_idx] = int(par_opt_idx)
+                par_amici_rdata_idx = [par_amici_rdata_idx[0]]
+            for rdata_idx in par_amici_rdata_idx:
+                sim_positions.append(int(rdata_idx))
+                opt_positions.append(int(par_opt_idx))
+        sim_positions = np.asarray(sim_positions, dtype=int)
+        opt_positions = np.asarray(opt_positions, dtype=int)
 
         sim_grad = np.zeros(n_parameters)
 
@@ -376,7 +391,8 @@ class SemiquantInnerSolver(InnerSolver):
 
             sim_grad += np.dot(term2, term1) / sigma**2
 
-        snllh[sim_to_opt_indices] = sim_grad
+        # np.add.at accumulates when several sim params map to the same opt param.
+        np.add.at(snllh, opt_positions, sim_grad[sim_positions])
 
         return snllh
 
@@ -872,7 +888,7 @@ def _calculate_nllh_for_group(
     if group_dict[OPTIMIZE_NOISE]:
         sigma = _calculate_sigma_for_group(
             residuals_squared=residuals_squared,
-            n_datapoints=N,
+            n_datapoints=K,
         )
         group_dict[INNER_NOISE_PARS] = sigma
     else:
@@ -966,7 +982,7 @@ def _calculate_nllh_gradient_for_group(
         )
         sigma = _calculate_sigma_for_group(
             residuals_squared=residuals_squared,
-            n_datapoints=N,
+            n_datapoints=len(sim_all),
         )
         group_dict[INNER_NOISE_PARS] = sigma
     else:
