@@ -422,10 +422,16 @@ def plot_splines_from_pypesto_result(
             "The calculator must be an instance of the InnerCalculatorCollector."
         )
 
-    # Check the result for start index contains the spline knots.
-    if SPLINE_KNOTS not in pypesto_result.optimize_result.list[start_index]:
+    # Check the result for start index contains the spline knots. `None` is the value a recording
+    # family without a knot representation stores, so it has to fail here with the same clear message
+    # rather than as a TypeError while iterating below.
+    if (
+        SPLINE_KNOTS not in pypesto_result.optimize_result.list[start_index]
+        or pypesto_result.optimize_result.list[start_index][SPLINE_KNOTS] is None
+    ):
         raise ValueError(
-            f"The result with index {start_index} does not contain the spline knots."
+            f"The result with index {start_index} does not contain the spline knots. "
+            "Recording families other than the spline have no knot representation."
         )
 
     # Get the spline knot values from the pypesto result

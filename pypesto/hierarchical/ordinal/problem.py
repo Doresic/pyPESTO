@@ -168,7 +168,7 @@ class OrdinalProblem(AmiciInnerProblem):
             x.initialize()
 
         # Initialize the groups.
-        for group in self.get_groups_for_xs(InnerParameterType.SPLINE):
+        for group in self.get_groups_for_xs(InnerParameterType.SEMIQUANT):
             self.groups[group][SURROGATE_DATA] = np.zeros(
                 self.groups[group][NUM_DATAPOINTS]
             )

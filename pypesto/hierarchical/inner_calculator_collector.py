@@ -36,6 +36,8 @@ from ..C import (
     RDATAS,
     RELATIVE,
     RES,
+    FAMILY_SPLINE,
+    FUNCTION_FAMILY,
     SEMIQUANTITATIVE,
     SPLINE_APPROXIMATION_OPTIONS,
     SPLINE_KNOTS,
@@ -181,8 +183,16 @@ class InnerCalculatorCollector(AmiciCalculator):
                 if key in SPLINE_APPROXIMATION_OPTIONS
             }
             spline_ratio = spline_inner_options.pop(SPLINE_RATIO, None)
+            # The family has to reach the PROBLEM, not only the solver: it decides how many inner
+            # parameters each group gets. It stays in the solver options too, which need it as well.
             semiquant_problem = SemiquantProblem.from_petab_amici(
-                petab_problem, model, edatas, spline_ratio
+                petab_problem,
+                model,
+                edatas,
+                spline_ratio,
+                function_family=spline_inner_options.get(
+                    FUNCTION_FAMILY, FAMILY_SPLINE
+                ),
             )
             semiquant_inner_solver = SemiquantInnerSolver(
                 options=spline_inner_options

@@ -4,15 +4,20 @@ import numpy as np
 import pandas as pd
 
 from ...C import (
+    BETA_PAR_TYPE,
     CURRENT_SIMULATION,
     DATAPOINTS,
     EXPDATA_MASK,
+    FAMILY_BETA_CDF,
+    FAMILY_SPLINE,
+    FUNCTION_FAMILIES,
     INNER_NOISE_PARS,
     INNER_PARAMETER_BOUNDS,
     LIN,
     MAX_DATAPOINT,
     MEASUREMENT_TYPE,
     MIN_DATAPOINT,
+    N_BETA_PARS,
     N_SPLINE_PARS,
     NUM_DATAPOINTS,
     OPTIMIZE_NOISE,
@@ -71,9 +76,17 @@ class SemiquantProblem(AmiciInnerProblem):
     def __init__(
         self,
         spline_ratio: float = 0.5,
+        function_family: str = FAMILY_SPLINE,
         **kwargs,
     ):
         """Construct."""
+        # Validated before super() so a mistyped family is not masked by a base class error.
+        if function_family not in FUNCTION_FAMILIES:
+            raise ValueError(
+                f"Unknown function_family {function_family!r}; expected one of {FUNCTION_FAMILIES}."
+            )
+        self.function_family = function_family
+
         super().__init__(**kwargs)
         self.spline_ratio = spline_ratio
 
@@ -84,7 +97,7 @@ class SemiquantProblem(AmiciInnerProblem):
     def _initialize_groups(self) -> None:
         """Initialize the groups of the subproblem."""
         self.groups = {}
-        for group in self.get_groups_for_xs(InnerParameterType.SPLINE):
+        for group in self.get_groups_for_xs(InnerParameterType.SEMIQUANT):
             xs = self.get_xs_for_group(group)
 
             self.groups[group] = {}
@@ -111,6 +124,13 @@ class SemiquantProblem(AmiciInnerProblem):
                 len(self.get_noise_parameters_for_group(group)) > 0
             )
 
+            # NOTE: do NOT add a guard here on `len(get_free_xs_for_group(group)) < len(xs)`. It looks
+            # like it would catch a pinned inner parameter and it does not: `estimate` defaults to
+            # False on SplineInnerParameter, while the PEtab path hardcodes estimate=True, so a
+            # directly-constructed problem (test_spline's included) has ZERO "free" xs and would be
+            # rejected. `estimate` is not a pinning mechanism for this family -- both solvers ignore it
+            # and solve in the full group dimension. Pinning needs implementing, not guarding.
+
     def initialize(self) -> None:
         """Initialize the subproblem."""
         # Initialize all parameter values.
@@ -118,7 +138,7 @@ class SemiquantProblem(AmiciInnerProblem):
             x.initialize()
 
         # Initialize the groups.
-        for group in self.get_groups_for_xs(InnerParameterType.SPLINE):
+        for group in self.get_groups_for_xs(InnerParameterType.SEMIQUANT):
             self.groups[group][CURRENT_SIMULATION] = np.zeros(
                 self.groups[group][NUM_DATAPOINTS]
             )
@@ -130,12 +150,13 @@ class SemiquantProblem(AmiciInnerProblem):
         amici_model: amici.Model,
         edatas: list[amici.ExpData],
         spline_ratio: float = None,
+        function_family: str = FAMILY_SPLINE,
     ) -> SemiquantProblem:
         """Construct the inner problem from the `petab_problem`."""
         if spline_ratio is None:
             spline_ratio = get_default_options()
         return spline_inner_problem_from_petab_problem(
-            petab_problem, amici_model, edatas, spline_ratio
+            petab_problem, amici_model, edatas, spline_ratio, function_family
         )
 
     def get_interpretable_x_ids(self) -> list[str]:
@@ -168,7 +189,7 @@ class SemiquantProblem(AmiciInnerProblem):
             {
                 x.observable_id
                 for x in self.xs.values()
-                if x.inner_parameter_type == InnerParameterType.SPLINE
+                if x.inner_parameter_type == InnerParameterType.SEMIQUANT
             }
         )
 
@@ -183,7 +204,7 @@ class SemiquantProblem(AmiciInnerProblem):
             x
             for x in self.xs.values()
             if x.group == group
-            and x.inner_parameter_type == InnerParameterType.SPLINE
+            and x.inner_parameter_type == InnerParameterType.SEMIQUANT
         ]
 
     def get_free_xs_for_group(self, group: int) -> list[SplineInnerParameter]:
@@ -193,7 +214,7 @@ class SemiquantProblem(AmiciInnerProblem):
             for x in self.xs.values()
             if x.group == group
             and x.estimate is True
-            and x.inner_parameter_type == InnerParameterType.SPLINE
+            and x.inner_parameter_type == InnerParameterType.SEMIQUANT
         ]
 
     def get_fixed_xs_for_group(self, group: int) -> list[SplineInnerParameter]:
@@ -203,7 +224,7 @@ class SemiquantProblem(AmiciInnerProblem):
             for x in self.xs.values()
             if x.group == group
             and x.estimate is False
-            and x.inner_parameter_type == InnerParameterType.SPLINE
+            and x.inner_parameter_type == InnerParameterType.SEMIQUANT
         ]
 
     def get_inner_noise_parameters(self) -> list[float]:
@@ -243,13 +264,20 @@ class SemiquantProblem(AmiciInnerProblem):
             the first array contains the spline bases, the second array contains the
             spline knot values. The ordering of the observable lists is the same
             as in `pypesto.problem.hierarchical.semiquant_observable_ids`.
+            ``None`` if this problem's recording family is not the spline.
         """
+        if self.function_family != FAMILY_SPLINE:
+            # Not a knot representation. The beta family's inner parameters are the two SHAPES, and
+            # the cumulative sum below would publish a plausible-looking 2-point line that the
+            # plotting path then labels "Spline function". Returning nothing beats a wrong figure.
+            return None
+
         # We need the solver only for the rescaling function.
         from .solver import SemiquantInnerSolver
 
         all_spline_knots = []
 
-        for group in self.get_groups_for_xs(InnerParameterType.SPLINE):
+        for group in self.get_groups_for_xs(InnerParameterType.SEMIQUANT):
             group_dict = self.groups[group]
             n_spline_pars = group_dict[N_SPLINE_PARS]
             n_data_points = group_dict[NUM_DATAPOINTS]
@@ -307,6 +335,7 @@ def spline_inner_problem_from_petab_problem(
     amici_model: amici.Model,
     edatas: list[amici.ExpData],
     spline_ratio: float = None,
+    function_family: str = FAMILY_SPLINE,
 ):
     """Construct the inner problem from the `petab_problem`."""
     if spline_ratio is None:
@@ -316,7 +345,7 @@ def spline_inner_problem_from_petab_problem(
 
     # inner parameters
     inner_parameters = spline_inner_parameters_from_measurement_df(
-        petab_problem.measurement_df, spline_ratio, amici_model
+        petab_problem.measurement_df, spline_ratio, amici_model, function_family
     )
 
     # noise parameters for semiquantitative observables
@@ -345,6 +374,7 @@ def spline_inner_problem_from_petab_problem(
         data=data,
         edatas=edatas,
         spline_ratio=spline_ratio,
+        function_family=function_family,
     )
 
 
@@ -352,15 +382,24 @@ def spline_inner_parameters_from_measurement_df(
     df: pd.DataFrame,
     spline_ratio: float,
     amici_model: amici.Model,
+    function_family: str = FAMILY_SPLINE,
 ) -> list[SplineInnerParameter]:
-    """Create list of inner free spline parameters from PEtab measurement table."""
+    """Create list of inner free recording-function parameters from PEtab measurement table.
+
+    The spline needs ``ceil(K * spline_ratio)`` knot increments per group, the beta CDF exactly
+    ``N_BETA_PARS`` shapes.
+    """
     df = df.reset_index()
 
     observable_ids = amici_model.getObservableIds()
 
-    par_type = SPLINE_PAR_TYPE
+    # The family goes into the parameter id: a beta group's 2 inner parameters would otherwise be
+    # indistinguishable from a 2-knot spline group's in stored results.
+    par_type = (
+        BETA_PAR_TYPE if function_family == FAMILY_BETA_CDF else SPLINE_PAR_TYPE
+    )
     estimate = True
-    lb, ub = INNER_PARAMETER_BOUNDS[InnerParameterType.SPLINE].values()
+    lb, ub = INNER_PARAMETER_BOUNDS[InnerParameterType.SEMIQUANT].values()
 
     inner_parameters = []
 
@@ -372,7 +411,10 @@ def spline_inner_parameters_from_measurement_df(
         group = observable_ids.index(observable_id) + 1
         df_for_group = df[df[OBSERVABLE_ID] == observable_id]
 
-        n_spline_parameters = int(np.ceil(len(df_for_group) * spline_ratio))
+        if function_family == FAMILY_BETA_CDF:
+            n_spline_parameters = N_BETA_PARS
+        else:
+            n_spline_parameters = int(np.ceil(len(df_for_group) * spline_ratio))
 
         # Create n_spline_parameters number of spline inner parameters.
         for par_index in range(n_spline_parameters):
@@ -380,7 +422,7 @@ def spline_inner_parameters_from_measurement_df(
             inner_parameters.append(
                 SplineInnerParameter(
                     inner_parameter_id=par_id,
-                    inner_parameter_type=InnerParameterType.SPLINE,
+                    inner_parameter_type=InnerParameterType.SEMIQUANT,
                     scale=LIN,
                     lb=lb,
                     ub=ub,

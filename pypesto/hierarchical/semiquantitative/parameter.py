@@ -41,7 +41,7 @@ class SplineInnerParameter(InnerParameter):
         """
         super().__init__(*args, **kwargs)
         if self.inner_parameter_type not in [
-            InnerParameterType.SPLINE,
+            InnerParameterType.SEMIQUANT,
             InnerParameterType.SIGMA,
         ]:
             raise ValueError(
@@ -54,7 +54,7 @@ class SplineInnerParameter(InnerParameter):
             raise ValueError("No Parameter group provided.")
         if (
             index is None
-            and self.inner_parameter_type == InnerParameterType.SPLINE
+            and self.inner_parameter_type == InnerParameterType.SEMIQUANT
         ):
             raise ValueError(
                 "No Parameter index provided for spline parameter."

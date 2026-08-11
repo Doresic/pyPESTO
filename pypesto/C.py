@@ -105,7 +105,10 @@ class InnerParameterType(StrEnum):
     SCALING = "scaling"
     SIGMA = "sigma"
     ORDINAL = "ordinal"
-    SPLINE = "spline"
+    # Covers both semiquantitative recording families: the monotone spline and the beta CDF.
+    # The value stays "spline" for backwards compatibility.
+    SEMIQUANT = "spline"
+    SPLINE = "spline"  # alias of SEMIQUANT
 
 
 DUMMY_INNER_VALUE = {
@@ -113,7 +116,7 @@ DUMMY_INNER_VALUE = {
     InnerParameterType.SCALING: 1.0,
     InnerParameterType.SIGMA: 1.0,
     InnerParameterType.ORDINAL: 0.0,
-    InnerParameterType.SPLINE: 0.0,
+    InnerParameterType.SEMIQUANT: 0.0,
 }
 
 INNER_PARAMETER_BOUNDS = {
@@ -133,7 +136,7 @@ INNER_PARAMETER_BOUNDS = {
         LOWER_BOUND: -float("inf"),
         UPPER_BOUND: float("inf"),
     },
-    InnerParameterType.SPLINE: {
+    InnerParameterType.SEMIQUANT: {
         LOWER_BOUND: -float("inf"),
         UPPER_BOUND: float("inf"),
     },
@@ -202,11 +205,36 @@ SPLINE_RATIO = "spline_ratio"
 MIN_DIFF_FACTOR = "min_diff_factor"
 REGULARIZE_SPLINE = "regularize_spline"
 REGULARIZATION_FACTOR = "regularization_factor"
+
+# Which family the recording function is estimated in. "spline" is the monotone piecewise-linear
+# default; "beta_cdf" is a two-shape-parameter smooth family on a scale-anchored domain.
+FUNCTION_FAMILY = "function_family"
+FAMILY_SPLINE = "spline"
+FAMILY_BETA_CDF = "beta_cdf"
+FUNCTION_FAMILIES = [FAMILY_SPLINE, FAMILY_BETA_CDF]
+
+# Domain of the beta CDF: Q = beta_kappa * LSE(q), L = softmin(q), with sharpness
+# beta = beta_beta_star / rms(q). See METHOD_NOTES 2.3b for why rms(q) and not max(q).
+BETA_KAPPA = "beta_kappa"
+BETA_BETA_STAR = "beta_beta_star"
+# The two beta shapes (a, b). Offset, scale and sigma are concentrated out, not optimized.
+N_BETA_PARS = 2
+# Bounds on the shapes, set by the range of real recording functions the family has to cover.
+# See METHOD_NOTES 2.7 for the atlas they come from and 2.7b for why the lower bound on a is 0.02.
+BETA_A_BOUNDS = (0.02, 20.0)
+BETA_B_BOUNDS = (0.5, 30.0)
+# RSS is floored relative to SST: a near-exact fit would otherwise send (K/2)log(RSS) to -inf and the
+# gradient prefactor K/(2 RSS) to infinity. Relative, so the objective stays scale-invariant.
+RSS_REL_FLOOR = 1e-14
+
 SPLINE_APPROXIMATION_OPTIONS = [
     SPLINE_RATIO,
     MIN_DIFF_FACTOR,
     REGULARIZE_SPLINE,
     REGULARIZATION_FACTOR,
+    FUNCTION_FAMILY,
+    BETA_KAPPA,
+    BETA_BETA_STAR,
 ]
 
 ###############################################################################
@@ -226,6 +254,10 @@ BINARY_OPTIONS = [
 MIN_SIM_RANGE = 1e-16
 
 SPLINE_PAR_TYPE = "spline"
+# Prefix for the beta-CDF family's inner parameter ids. A beta group has exactly 2 inner parameters, so
+# reusing SPLINE_PAR_TYPE would give them ids byte-identical to a 2-knot spline group's, leaving stored
+# results from the two arms indistinguishable.
+BETA_PAR_TYPE = "beta"
 SPLINE_KNOTS = "spline_knots"
 N_SPLINE_PARS = "n_spline_pars"
 DATAPOINTS = "datapoints"

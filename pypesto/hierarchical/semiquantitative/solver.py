@@ -1,24 +1,41 @@
 from __future__ import annotations
 
+import logging
 import warnings
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import OptimizeResult, lsq_linear, minimize
+from scipy.special import betainc, betaln, xlogy
+
+try:
+    import fides
+except ImportError:
+    fides = None
 
 from ...C import (
+    BETA_A_BOUNDS,
+    BETA_B_BOUNDS,
+    BETA_BETA_STAR,
+    BETA_KAPPA,
     CURRENT_SIMULATION,
     DATAPOINTS,
     EXPDATA_MASK,
+    FAMILY_BETA_CDF,
+    FAMILY_SPLINE,
+    FUNCTION_FAMILIES,
+    FUNCTION_FAMILY,
     INNER_NOISE_PARS,
     MAX_DATAPOINT,
     MIN_DATAPOINT,
     MIN_DIFF_FACTOR,
     MIN_SIM_RANGE,
+    N_BETA_PARS,
     N_SPLINE_PARS,
     NUM_DATAPOINTS,
     OPTIMIZE_NOISE,
     REGULARIZATION_FACTOR,
     REGULARIZE_SPLINE,
+    RSS_REL_FLOOR,
     SCIPY_FUN,
     SCIPY_SUCCESS,
     SCIPY_X,
@@ -32,6 +49,10 @@ try:
     from amici.petab.parameter_mapping import ParameterMapping
 except ImportError:
     pass
+
+# Returned by the beta objective where the shapes give a degenerate design, so the optimizer walks away
+# from that corner rather than seeing a non-finite value.
+BETA_BIG_NLLH = 1e9
 
 
 class SemiquantInnerSolver(InnerSolver):
@@ -71,6 +92,23 @@ class SemiquantInnerSolver(InnerSolver):
                     f"{REGULARIZATION_FACTOR} must not be negative."
                 )
 
+        if self.options[FUNCTION_FAMILY] not in FUNCTION_FAMILIES:
+            raise ValueError(
+                f"{FUNCTION_FAMILY} must be one of {FUNCTION_FAMILIES}, "
+                f"got {self.options[FUNCTION_FAMILY]!r}."
+            )
+        if self.options[FUNCTION_FAMILY] == FAMILY_BETA_CDF:
+            if not isinstance(self.options[BETA_KAPPA], float):
+                raise TypeError(f"{BETA_KAPPA} must be of type float.")
+            elif self.options[BETA_KAPPA] < 1.0:
+                raise ValueError(
+                    f"{BETA_KAPPA} must be at least 1, so that Q bounds the simulations."
+                )
+            if not isinstance(self.options[BETA_BETA_STAR], float):
+                raise TypeError(f"{BETA_BETA_STAR} must be of type float.")
+            elif self.options[BETA_BETA_STAR] <= 0.0:
+                raise ValueError(f"{BETA_BETA_STAR} must be positive.")
+
         for key in self.options:
             if key not in self.get_default_options():
                 raise ValueError(f"Unknown SplineInnerSolver option {key}.")
@@ -97,7 +135,7 @@ class SemiquantInnerSolver(InnerSolver):
         List of optimization results of the inner subproblem.
         """
         inner_results = []
-        for group in problem.get_groups_for_xs(InnerParameterType.SPLINE):
+        for group in problem.get_groups_for_xs(InnerParameterType.SEMIQUANT):
             group_dict = problem.groups[group]
             group_dict[CURRENT_SIMULATION] = extract_expdata_using_mask(
                 expdata=sim, mask=group_dict[EXPDATA_MASK]
@@ -110,11 +148,19 @@ class SemiquantInnerSolver(InnerSolver):
                     expdata=amici_sigma, mask=group_dict[EXPDATA_MASK]
                 )[0]
 
-            # Optimize the spline for this group.
-            inner_result_for_group = self._optimize_spline(
-                inner_parameters=problem.get_free_xs_for_group(group),
-                group_dict=group_dict,
-            )
+            # Dispatch on the recording family BEFORE _optimize_spline: its default path
+            # (_solve_bounded_ls) is a linear least squares, which would "successfully" return the
+            # optimum of a 2-knot spline for a beta group instead of failing.
+            if self.options[FUNCTION_FAMILY] == FAMILY_BETA_CDF:
+                inner_result_for_group = self._optimize_beta(
+                    inner_parameters=problem.get_free_xs_for_group(group),
+                    group_dict=group_dict,
+                )
+            else:
+                inner_result_for_group = self._optimize_spline(
+                    inner_parameters=problem.get_free_xs_for_group(group),
+                    group_dict=group_dict,
+                )
 
             inner_results.append(inner_result_for_group)
             save_inner_parameters_to_inner_problem(
@@ -325,7 +371,7 @@ class SemiquantInnerSolver(InnerSolver):
 
         sim_grad = np.zeros(n_parameters)
 
-        for group in problem.get_groups_for_xs(InnerParameterType.SPLINE):
+        for group in problem.get_groups_for_xs(InnerParameterType.SEMIQUANT):
             group_dict = problem.groups[group]
             mask = group_dict[EXPDATA_MASK]
             group_dict[CURRENT_SIMULATION] = extract_expdata_using_mask(
@@ -336,15 +382,26 @@ class SemiquantInnerSolver(InnerSolver):
             K = group_dict[NUM_DATAPOINTS]
             measurements = group_dict[DATAPOINTS]
             sigma = problem.groups[group][INNER_NOISE_PARS]
-            delta_c, c, n = SemiquantInnerSolver._rescale_spline_bases(
-                sim_all=group_dict[CURRENT_SIMULATION], N=N, K=K
-            )
             sim_all = extract_expdata_using_mask(expdata=sim, mask=mask)
 
             # Extract sensitivities for this group across all parameters
             # shape: (n_parameters, n_datapoints_in_group)
             sy_all_across_pars = np.concatenate(
                 [sy[i][:, mask[i]] for i in range(n_conditions)], axis=1
+            )
+
+            if self.options[FUNCTION_FAMILY] == FAMILY_BETA_CDF:
+                sim_grad += _beta_group_gradient(
+                    solver=self,
+                    sim_all=sim_all,
+                    sy_all=sy_all_across_pars,
+                    measurements=measurements,
+                    inner_pars=s,
+                )
+                continue
+
+            delta_c, c, n = SemiquantInnerSolver._rescale_spline_bases(
+                sim_all=group_dict[CURRENT_SIMULATION], N=N, K=K
             )
 
             # Calculate gradient of spline knots c and delta_c
@@ -482,7 +539,7 @@ class SemiquantInnerSolver(InnerSolver):
                 ]
 
                 for group_idx, group in enumerate(
-                    problem.get_groups_for_xs(InnerParameterType.SPLINE)
+                    problem.get_groups_for_xs(InnerParameterType.SEMIQUANT)
                 ):
                     # Get the reformulated spline parameters
                     s = np.asarray(x_inner_opt[group_idx][SCIPY_X])
@@ -502,6 +559,18 @@ class SemiquantInnerSolver(InnerSolver):
                         expdata=ssigma_for_outer_parameter,
                         mask=group_dict[EXPDATA_MASK],
                     )
+
+                    if self.options[FUNCTION_FAMILY] == FAMILY_BETA_CDF:
+                        # This path walks one outer parameter at a time, so sy_all is 1-D here while
+                        # the shared helper is written for (n_parameters, n_datapoints).
+                        grad += _beta_group_gradient(
+                            solver=self,
+                            sim_all=sim_all,
+                            sy_all=sy_all[np.newaxis, :],
+                            measurements=measurements,
+                            inner_pars=s,
+                        )[0]
+                        continue
 
                     delta_c, c, n = self._rescale_spline_bases(
                         sim_all=sim_all, N=N, K=K
@@ -599,6 +668,13 @@ class SemiquantInnerSolver(InnerSolver):
             MIN_DIFF_FACTOR: 0.0,
             REGULARIZE_SPLINE: False,
             REGULARIZATION_FACTOR: 0.0,
+            FUNCTION_FAMILY: FAMILY_SPLINE,
+            # kappa = 1.05 leaves 5% headroom above the (already >= max) LSE anchor. It barely affects
+            # the theta inference -- fit quality moves < 0.28 nllh across kappa in [1, 2] -- but it DOES
+            # set how much of [0,1] the data occupy, so it is part of what the fitted (a, b) MEAN. Any
+            # cross-study comparison of shapes has to quote the same kappa.
+            BETA_KAPPA: 1.05,
+            BETA_BETA_STAR: 31.0,
         }
         return options
 
@@ -673,13 +749,176 @@ class SemiquantInnerSolver(InnerSolver):
                 group_dict=group_dict,
             )
 
+        # Without regularization the inner problem is a bound-constrained linear least squares, so it
+        # can be solved exactly. With regularization the nllh is (K/2)log(RSS) + lambda*R(s), whose
+        # optimum is not a least-squares optimum, and we fall through to L-BFGS-B.
+        if not self.options[REGULARIZE_SPLINE]:
+            exact = self._solve_bounded_ls(
+                sim_all=group_dict[CURRENT_SIMULATION],
+                measurements=group_dict[DATAPOINTS],
+                N=group_dict[N_SPLINE_PARS],
+                delta_c=distance_between_bases,
+                c=spline_bases,
+                n=intervals_per_sim,
+                min_diff=min_diff,
+                nllh=objective_function_wrapper,
+                grad=inner_gradient_wrapper,
+            )
+            if exact is not None:
+                return exact
+
         results = minimize(
             objective_function_wrapper,
             jac=inner_gradient_wrapper,
             **inner_options,
         )
 
+        # The warm start is the previous theta's optimum, but the knot grid is re-anchored to the
+        # current simulation range, so it can be badly mis-scaled. Retry once from the cold start.
+        if not results.success:
+            cold_options = self._get_inner_optimization_options(
+                inner_parameters=inner_parameters,
+                N=group_dict[N_SPLINE_PARS],
+                min_meas=group_dict[MIN_DATAPOINT],
+                max_meas=group_dict[MAX_DATAPOINT],
+                min_diff=min_diff,
+                force_cold_start=True,
+            )
+            if not np.allclose(cold_options["x0"], inner_options["x0"]):
+                retry = minimize(
+                    objective_function_wrapper,
+                    jac=inner_gradient_wrapper,
+                    **cold_options,
+                )
+                if retry.success or retry.fun < results.fun:
+                    return retry
+
         return results
+
+    def _optimize_beta(
+        self,
+        inner_parameters: list[SplineInnerParameter],
+        group_dict: dict,
+    ):
+        """Run optimization for the inner problem, beta CDF family.
+
+        Only the two shapes are optimized; offset, scale and sigma are concentrated out, so the
+        objective is ``(K/2) log(RSS/K)`` with ``RSS = SST (1 - rho^2)``. Optimization is in
+        ``(log a, log b)``, where the shape box is a rectangle.
+
+        A degenerate group returns ``success=False`` rather than raising, so that
+        ``calculate_obj_function`` turns it into an infinite objective and the outer optimizer moves
+        away from that theta instead of the run crashing.
+        """
+        sim_all = group_dict[CURRENT_SIMULATION]
+        measurements = group_dict[DATAPOINTS]
+        K = len(measurements)
+        failed = OptimizeResult(
+            x=np.array([1.0, 1.0]), fun=np.inf, success=False
+        )
+
+        if K < N_BETA_PARS + 4 or len(np.unique(sim_all)) < 3:
+            # Four mean parameters (offset, scale, a, b) plus residual degrees of freedom for sigma;
+            # and with offset and scale free, two distinct simulations are fitted exactly by any
+            # monotone curve, so the shapes carry no information.
+            return failed
+        y_centered = measurements - measurements.mean()
+        sst = float(y_centered @ y_centered)
+        if np.std(measurements) <= 1e-13 * max(
+            float(np.max(np.abs(measurements))), 1.0
+        ):
+            # Relative, not `sst > 0`: K copies of one value leave sst ~ K eps^2 y^2, which passes an
+            # absolute test, and the fit would then maximize correlation against rounding noise.
+            return failed
+        try:
+            domain = self._rescale_beta_domain(
+                sim_all, self.options[BETA_KAPPA], self.options[BETA_BETA_STAR]
+            )
+        except ValueError:
+            return failed
+
+        x_all = (sim_all - domain["L"]) / (domain["Q"] - domain["L"])
+        x_unique, x_inverse = np.unique(x_all, return_inverse=True)
+        lb = np.log([BETA_A_BOUNDS[0], BETA_B_BOUNDS[0]])
+        ub = np.log([BETA_A_BOUNDS[1], BETA_B_BOUNDS[1]])
+
+        def objective_function_wrapper(p):
+            return _calculate_nllh_for_group_beta(
+                p, x_unique, x_inverse, y_centered, sst, K
+            )
+
+        def inner_gradient_wrapper(p):
+            return _calculate_nllh_shape_gradient_for_group_beta(
+                p, x_unique, x_inverse, y_centered, sst, K
+            )
+
+        # Started at the affine point (a, b) = (1, 1), never warm-started: the domain re-anchors to the
+        # current simulations, so a warm start would make the inner optimum path-dependent.
+        results = _minimize_beta_shapes(
+            objective_function_wrapper, inner_gradient_wrapper, np.zeros(2), lb, ub
+        )
+        a, b = np.exp(np.clip(results.x, lb, ub))
+        return OptimizeResult(
+            x=np.array([a, b]), fun=float(results.fun), success=True
+        )
+
+    @staticmethod
+    def _solve_bounded_ls(
+        sim_all: np.ndarray,
+        measurements: np.ndarray,
+        N: int,
+        delta_c: float,
+        c: np.ndarray,
+        n: np.ndarray,
+        min_diff: float,
+        nllh,
+        grad,
+    ):
+        """Solve the inner problem exactly as bound-constrained linear least squares.
+
+        The fitted value is linear in s, so the design has D[k, :i] = 1 and
+        D[k, i] = (y_k - c[i-1]) / delta_c for interval index i = n_k - 1.
+
+        Returns an OptimizeResult whose ``fun`` is the nllh (not the residual sum, which callers would
+        sum as the inner objective), or None on any degeneracy so the caller can fall back. ``jac`` is
+        included so this path returns the same keys as the L-BFGS-B fallback.
+        """
+        try:
+            if not np.isfinite(delta_c) or delta_c <= 0:
+                return None
+            D = np.zeros((len(sim_all), N))
+            for k, (y_k, n_k) in enumerate(zip(sim_all, n, strict=True)):
+                i = int(n_k) - 1
+                if i <= 0:
+                    D[k, 0] = 1.0
+                elif i >= N:
+                    D[k, :] = 1.0
+                else:
+                    D[k, :i] = 1.0
+                    D[k, i] = (y_k - c[i - 1]) / delta_c
+            lb = np.full(N, float(min_diff))
+            lb[0] = 0.0
+            res = lsq_linear(
+                D,
+                np.asarray(measurements, float),
+                bounds=(lb, np.inf),
+                method="bvls",
+            )
+            if not res.success or not np.all(np.isfinite(res.x)):
+                return None
+            fval = float(nllh(res.x))
+            if not np.isfinite(fval):
+                return None
+            return OptimizeResult(
+                x=np.asarray(res.x, float),
+                fun=fval,
+                jac=np.asarray(grad(res.x), float),
+                success=True,
+                status=0,
+                message="exact bounded least squares",
+            )
+        except Exception:
+            return None
 
     @staticmethod
     def _rescale_spline_bases(sim_all: np.ndarray, N: int, K: int):
@@ -757,6 +996,68 @@ class SemiquantInnerSolver(InnerSolver):
         n = n.astype(int)
         return delta_c, c, n
 
+    @staticmethod
+    def _rescale_beta_domain(
+        sim_all: np.ndarray,
+        kappa: float,
+        beta_star: float,
+    ) -> dict:
+        """Rescale the beta CDF domain to the simulations, via smooth bounds on both ends.
+
+            Q = kappa * LSE_beta(q)        LSE_beta(q)     =  (1/beta) log sum_i exp( beta q_i)
+            L =         SOFTMIN_beta(q)    SOFTMIN_beta(q) = -(1/beta) log sum_i exp(-beta q_i)
+            x = (q - L) / (Q - L)          beta = beta_star / rms(q)
+
+        LSE >= max(q) and SOFTMIN <= min(q) for any beta > 0, so x is in [0, 1] by construction whenever
+        kappa >= 1. beta is normalized by rms(q), not max(q): max(q) would put argmax into dbeta/dtheta
+        and so into both anchors' gradients. See METHOD_NOTES 2.3b.
+
+        Returns
+        -------
+        Dict with the anchors ``Q``, ``L``; the softmax and softmin weights ``w`` = dLSE/dq,
+        ``v`` = dSOFTMIN/dq; the beta chain factors ``dlse_dbeta`` <= 0, ``dsmin_dbeta`` >= 0; and
+        ``beta``, ``rms``, ``drms_dsim`` = drms/dq. Everything both gradient paths need, computed once.
+        """
+        sim_all = np.asarray(sim_all, dtype=float)
+        n = sim_all.size
+        rms = float(np.sqrt(np.mean(sim_all**2)))
+        if not rms > 0.0:
+            raise ValueError(
+                "All simulations of a semiquantitative group are zero, so the beta CDF "
+                "domain cannot be anchored."
+            )
+        beta = beta_star / rms
+
+        # Shifted by the extremum before exponentiating, so no term can overflow for large beta.
+        mx, mn = float(sim_all.max()), float(sim_all.min())
+        e_hi = np.exp(beta * (sim_all - mx))
+        sum_hi = float(e_hi.sum())
+        lse = mx + np.log(sum_hi) / beta
+        e_lo = np.exp(-beta * (sim_all - mn))
+        sum_lo = float(e_lo.sum())
+        smin = mn - np.log(sum_lo) / beta
+
+        Q, L = kappa * lse, smin
+        if not Q > L:
+            raise ValueError(f"Collapsed beta CDF domain: Q = {Q!r} <= L = {L!r}.")
+
+        w = e_hi / sum_hi
+        v = e_lo / sum_lo
+        # As entropies rather than (sum_i w_i q_i - LSE)/beta: the two forms are equal by the Gibbs
+        # identity H(w) = beta (LSE - sum_i w_i q_i), but that difference is only ~3% of LSE and loses
+        # ~1.5 digits to cancellation. xlogy gives 0 for the underflowed weights.
+        return {
+            "Q": Q,
+            "L": L,
+            "w": w,
+            "v": v,
+            "dlse_dbeta": float(np.sum(xlogy(w, w))) / beta**2,
+            "dsmin_dbeta": -float(np.sum(xlogy(v, v))) / beta**2,
+            "beta": beta,
+            "rms": rms,
+            "drms_dsim": sim_all / (n * rms),
+        }
+
     def _get_minimal_difference(
         self,
         measurement_range: float,
@@ -773,6 +1074,7 @@ class SemiquantInnerSolver(InnerSolver):
         min_meas: float,
         max_meas: float,
         min_diff: float,
+        force_cold_start: bool = False,
     ) -> dict:
         """Return default options for scipy optimizer.
 
@@ -799,7 +1101,7 @@ class SemiquantInnerSolver(InnerSolver):
 
         last_opt_values = np.asarray([x.value for x in inner_parameters])
 
-        if (last_opt_values > 0).any():
+        if (last_opt_values > 0).any() and not force_cold_start:
             x0 = last_opt_values
         # In case this is the first inner optimization, initialize the
         # spline parameters to a linear function with a symmetric 60%
@@ -826,6 +1128,199 @@ class SemiquantInnerSolver(InnerSolver):
         }
 
         return inner_options
+
+
+def _floor_rss(rss: float, sst: float) -> float:
+    """Floor RSS relative to SST.
+
+    A near-exact fit would otherwise send ``(K/2) log(RSS)`` to -inf and the gradient prefactor
+    ``K/(2 RSS)`` to infinity. The floor is relative so that the objective and gradient stay invariant
+    under a rescaling of the measurements. The SAME floor must be used by objective and gradient, or
+    they describe different functions and every finite-difference check silently fails.
+    """
+    return max(rss, RSS_REL_FLOOR * sst)
+
+
+def _floor_residuals_squared(
+    residuals_squared: float, measurements: np.ndarray
+) -> float:
+    """Apply the RSS floor in the spline convention, where residuals are RSS/2.
+
+    Floors relative to the total sum of squares of the measurements, so the bound is invariant under a
+    rescaling of the data. Objective and gradient must both apply it, or they describe different
+    functions.
+    """
+    centered = measurements - measurements.mean()
+    return 0.5 * _floor_rss(2 * residuals_squared, float(centered @ centered))
+
+
+def _calculate_nllh_for_group_beta(
+    p: np.ndarray,
+    x_unique: np.ndarray,
+    x_inverse: np.ndarray,
+    y_centered: np.ndarray,
+    sst: float,
+    K: int,
+):
+    """Beta CDF inner objective at shapes ``p = (log a, log b)``, offset/scale/sigma concentrated out.
+
+    ``RSS = SST (1 - rho^2(z, y))`` with ``z_i = I_{x_i}(a, b)``, so the shape problem is correlation
+    maximization. betainc is evaluated on the unique simulations and expanded, which is exact.
+
+    Carries the Gaussian normalization, as ``_calculate_nllh_for_group`` does, so that values are
+    comparable across observation models. It is constant in ``p`` and so does not enter the gradient.
+    """
+    a, b = np.exp(p)
+    with np.errstate(all="ignore"):
+        z = betainc(a, b, x_unique)[x_inverse]
+    if not np.all(np.isfinite(z)):
+        return BETA_BIG_NLLH
+    z_centered = z - z.mean()
+    d = float(z_centered @ z_centered)
+    if d <= 1e-28:
+        return BETA_BIG_NLLH
+    rss = _floor_rss(sst - float(z_centered @ y_centered) ** 2 / d, sst)
+    return 0.5 * K * (np.log(rss / K) + np.log(2 * np.pi) + 1)
+
+
+def _calculate_nllh_shape_gradient_for_group_beta(
+    p: np.ndarray,
+    x_unique: np.ndarray,
+    x_inverse: np.ndarray,
+    y_centered: np.ndarray,
+    sst: float,
+    K: int,
+):
+    """Gradient of the beta inner objective with respect to ``(log a, log b)``.
+
+    With ``n = z_c . y_c`` and ``d = z_c . z_c``,
+    ``dRSS/dp = -2 (n/d) (dz . y_c) + 2 (n/d)^2 (z_c . dz)`` and ``dnllh/dp = (K/2) dRSS/dp / RSS``.
+    ``dI/da`` and ``dI/db`` come from central differences on betainc itself, which reaches ~1e-10 --
+    differencing the composed objective instead would only reach ~1e-8.
+    """
+    a, b = np.exp(p)
+    rel = 1e-5
+    ha, hb = a * rel, b * rel
+    with np.errstate(all="ignore"):
+        z = betainc(a, b, x_unique)
+        dz_da = (betainc(a + ha, b, x_unique) - betainc(a - ha, b, x_unique)) / (2 * ha)
+        dz_db = (betainc(a, b + hb, x_unique) - betainc(a, b - hb, x_unique)) / (2 * hb)
+    if not (
+        np.all(np.isfinite(z))
+        and np.all(np.isfinite(dz_da))
+        and np.all(np.isfinite(dz_db))
+    ):
+        return np.zeros(2)
+    z = z[x_inverse]
+    # Chain to the log-parameters: dz/d(log a) = a dI/da.
+    derivatives = (a * dz_da[x_inverse], b * dz_db[x_inverse])
+    z_centered = z - z.mean()
+    d = float(z_centered @ z_centered)
+    if d <= 1e-28:
+        return np.zeros(2)
+    n = float(z_centered @ y_centered)
+    rss_raw = sst - n * n / d
+    rss = _floor_rss(rss_raw, sst)
+    if rss_raw < rss:
+        # On the floored branch the objective is constant, so its derivative is zero.
+        return np.zeros(2)
+    gradient = np.array(
+        [
+            -2 * n / d * float(dz @ y_centered)
+            + 2 * n * n / (d * d) * float(z_centered @ dz)
+            for dz in derivatives
+        ]
+    )
+    gradient *= 0.5 * K / rss
+    return gradient if np.all(np.isfinite(gradient)) else np.zeros(2)
+
+
+def _minimize_beta_shapes(nllh, grad, x0: np.ndarray, lb: np.ndarray, ub: np.ndarray):
+    """Minimize the beta inner objective over the shape box.
+
+    fides is trust-region reflective: the bounds enter the step computation, so it cannot stop at a box
+    corner where the projected gradient is trivially zero. That is exactly how L-BFGS-B fails on this
+    problem, at every value of its finite-difference step (METHOD_NOTES 2.9e). Without fides installed,
+    fall back to bounded Nelder-Mead plus a Newton polish, which is equally reliable at finding the
+    basin but needs the polish to reach a stationary point.
+    """
+    if fides is not None:
+        optimizer = fides.Optimizer(
+            lambda p: (nllh(p), grad(p)),
+            ub=ub,
+            lb=lb,
+            verbose=logging.ERROR,
+            hessian_update=fides.BFGS(),
+            options={
+                fides.Options.MAXITER: 200,
+                fides.Options.FATOL: 1e-14,
+                fides.Options.GATOL: 1e-10,
+            },
+        )
+        _, x, _, _ = optimizer.minimize(x0)
+        # Polished even though fides converged: it stops on its own criteria, which the outer gradient
+        # does not care about. The ENVELOPE THEOREM needs a stationary point, and the outer gradient
+        # error is FIRST order in the inner gradient while being invisible in the objective value.
+        # Measured here: fides stopped at |g| = 2.4e-3 within 4e-8 of the optimal value, and that alone
+        # put 1.9e-3 into the outer gradient; polishing to |g| = 3.4e-9 left 9.1e-7. ~10 extra
+        # evaluations for a 2000x more accurate gradient.
+        return _newton_polish_beta_shapes(np.asarray(x, float), nllh, grad, lb, ub)
+
+    # scipy's default Nelder-Mead simplex uses a 5% relative step but falls back to 0.00025 absolute
+    # for a coordinate that is exactly zero -- and log(1) is exactly zero, so the simplex at the (1,1)
+    # start would be born a thousand times too small.
+    simplex = np.clip(
+        np.vstack([x0, x0 + [0.4, 0.0], x0 + [0.0, 0.4]]), lb, ub
+    )
+    result = minimize(
+        nllh,
+        x0,
+        method="Nelder-Mead",
+        bounds=list(zip(lb, ub, strict=True)),
+        options={"initial_simplex": simplex, "xatol": 1e-8, "fatol": 1e-11},
+    )
+    return _newton_polish_beta_shapes(result.x, nllh, grad, lb, ub)
+
+
+def _newton_polish_beta_shapes(p, nllh, grad, lb, ub, iterations: int = 2):
+    """Give Nelder-Mead the stationarity it lacks, on the free set only, accepting only on descent.
+
+    Nelder-Mead stops on simplex size, which is not a stationarity certificate, and the envelope
+    theorem needs one. The problem is 2-D, so an exact Newton step costs four gradient evaluations.
+    """
+    p = np.clip(np.asarray(p, float), lb, ub)
+    fval = nllh(p)
+    for _ in range(iterations):
+        g = grad(p)
+        free = [
+            i
+            for i in range(len(p))
+            if not (
+                (p[i] <= lb[i] + 1e-9 and g[i] > 0)
+                or (p[i] >= ub[i] - 1e-9 and g[i] < 0)
+            )
+        ]
+        if not free:
+            break
+        hessian = np.empty((len(p), len(p)))
+        step_h = 1e-5
+        for j in range(len(p)):
+            offset = np.zeros(len(p))
+            offset[j] = step_h
+            hessian[:, j] = (grad(p + offset) - grad(p - offset)) / (2 * step_h)
+        hessian = 0.5 * (hessian + hessian.T)
+        try:
+            step = np.linalg.solve(hessian[np.ix_(free, free)], -g[free])
+        except np.linalg.LinAlgError:
+            break
+        candidate = p.copy()
+        candidate[free] = p[free] + step
+        candidate = np.clip(candidate, lb, ub)
+        fval_candidate = nllh(candidate)
+        if fval_candidate > fval:
+            break
+        p, fval = candidate, fval_candidate
+    return OptimizeResult(x=p, fun=float(fval), success=True)
 
 
 def _calculate_nllh_for_group(
@@ -886,8 +1381,16 @@ def _calculate_nllh_for_group(
 
     # Calculate sigma
     if group_dict[OPTIMIZE_NOISE]:
+        # sigma is concentrated out here, so a near-exact fit would send log(sigma^2) to -inf and the
+        # prefactor 1/sigma^2 to infinity; clamp it from below. The residual term below deliberately
+        # keeps the UNCLAMPED residuals: once sigma is clamped it no longer cancels to K/2, and that
+        # is what keeps the objective responsive to the fit -- which in turn is why the existing
+        # gradient formulas, here and in the outer path, stay correct with no floored-branch special
+        # case. The clamped sigma depends only on the measurements, so it is constant in theta and s.
         sigma = _calculate_sigma_for_group(
-            residuals_squared=residuals_squared,
+            residuals_squared=_floor_residuals_squared(
+                residuals_squared, measurements
+            ),
             n_datapoints=K,
         )
         group_dict[INNER_NOISE_PARS] = sigma
@@ -980,8 +1483,11 @@ def _calculate_nllh_gradient_for_group(
             c=c,
             n=n,
         )
+        # The same clamp the objective applies; see _calculate_nllh_for_group.
         sigma = _calculate_sigma_for_group(
-            residuals_squared=residuals_squared,
+            residuals_squared=_floor_residuals_squared(
+                residuals_squared, measurements
+            ),
             n_datapoints=len(sim_all),
         )
         group_dict[INNER_NOISE_PARS] = sigma
@@ -1271,6 +1777,104 @@ def calculate_dy_term(
     return df_dy
 
 
+def _beta_group_gradient(
+    solver,
+    sim_all: np.ndarray,
+    sy_all: np.ndarray,
+    measurements: np.ndarray,
+    inner_pars: np.ndarray,
+):
+    """Per-group beta gradient contribution, with the domain guard, so both gradient paths call one line.
+
+    A theta whose simulations cannot anchor a domain contributes nothing rather than raising: the outer
+    optimizer already sees an infinite objective there from ``_optimize_beta``.
+    """
+    try:
+        domain = solver._rescale_beta_domain(
+            sim_all,
+            solver.options[BETA_KAPPA],
+            solver.options[BETA_BETA_STAR],
+        )
+    except ValueError:
+        return np.zeros(sy_all.shape[0])
+    return calculate_beta_dy_term(
+        sim_all=sim_all,
+        sy_all=sy_all,
+        measurements=measurements,
+        a=float(inner_pars[0]),
+        b=float(inner_pars[1]),
+        domain=domain,
+        kappa=solver.options[BETA_KAPPA],
+    )
+
+
+def calculate_beta_dy_term(
+    sim_all: np.ndarray,
+    sy_all: np.ndarray,
+    measurements: np.ndarray,
+    a: float,
+    b: float,
+    domain: dict,
+    kappa: float,
+):
+    """Gradient of one beta group's inner objective with respect to the outer parameters.
+
+    Shared by both gradient paths, so the formula exists once. ``sy_all`` is ``(n_parameters,
+    n_datapoints)``; the return is ``(n_parameters,)``.
+
+    Offset, scale, sigma and the shapes are all at their inner optimum, so the envelope theorem leaves
+    only the explicit dependence through ``x``. The anchors are NOT estimated, so they do contribute:
+
+        dnllh/dtheta = (K/RSS) sum_i (ghat_i - y_i) s pdf(x_i) dx_i/dtheta
+        dx_i/dtheta  = [dq_i - (1-x_i) dL - x_i dQ] / (Q - L)
+        dbeta/dtheta = -beta * mean_i(q_i dq_i)/mean_i(q_i^2)
+        dQ = kappa (w . dq + dlse_dbeta  dbeta) ,   dL = v . dq + dsmin_dbeta dbeta
+
+    ``dx`` uses a single division: the quotient-rule form would square ``Q - L``, which gets as small as
+    1e-10. No sigma appears because sigma is concentrated out into ``(K/2) log(RSS/K)``.
+    """
+    n_parameters = sy_all.shape[0]
+    Q, L = domain["Q"], domain["L"]
+    x = (sim_all - L) / (Q - L)
+    K = len(measurements)
+
+    with np.errstate(all="ignore"):
+        z = betainc(a, b, x)
+        log_pdf = (
+            (a - 1) * np.log(x) + (b - 1) * np.log1p(-x) - betaln(a, b)
+        )
+        pdf = np.exp(log_pdf)
+    if not (np.all(np.isfinite(z)) and np.all(np.isfinite(pdf))):
+        return np.zeros(n_parameters)
+
+    y_centered = measurements - measurements.mean()
+    sst = float(y_centered @ y_centered)
+    z_centered = z - z.mean()
+    d = float(z_centered @ z_centered)
+    if d <= 1e-28 or sst <= 0.0:
+        return np.zeros(n_parameters)
+    n = float(z_centered @ y_centered)
+    rss_raw = sst - n * n / d
+    rss = _floor_rss(rss_raw, sst)
+    if rss_raw < rss:
+        # Floored: the objective is constant in theta there, so the derivative is zero.
+        return np.zeros(n_parameters)
+
+    scale = n / d
+    residuals = (measurements.mean() + scale * (z - z.mean())) - measurements
+
+    # mean_i(q dq)/mean_i(q^2): the 1/n_rows cancels, so this never forms rms explicitly.
+    dbeta = -domain["beta"] * (sy_all @ sim_all) / float(sim_all @ sim_all)
+    dQ = kappa * (sy_all @ domain["w"] + domain["dlse_dbeta"] * dbeta)
+    dL = sy_all @ domain["v"] + domain["dsmin_dbeta"] * dbeta
+
+    dx = (
+        sy_all - np.outer(dL, 1.0 - x) - np.outer(dQ, x)
+    ) / (Q - L)
+    gradient = (K / rss) * scale * ((pdf * dx) @ residuals)
+    return np.where(np.isfinite(gradient), gradient, 0.0)
+
+
 def calculate_spline_bases_gradient(
     sim_all: np.ndarray, sy_all: np.ndarray, N: int
 ):
@@ -1328,13 +1932,19 @@ def save_inner_parameters_to_inner_problem(
         Reformulated inner spline parameters.
     """
     group_dict = inner_problem.groups[group]
-    inner_spline_parameters = inner_problem.get_xs_for_group(group)
     inner_noise_parameters = inner_problem.get_noise_parameters_for_group(
         group
     )
 
-    for idx in range(len(inner_spline_parameters)):
-        inner_spline_parameters[idx].value = s[idx]
+    # `s` carries one entry per inner parameter of the group in BOTH families, regardless of which are
+    # free: the spline solves in N_SPLINE_PARS dimensions and `_optimize_beta` always returns (a, b),
+    # and neither consults the free/fixed split for its dimension. So this pairs with ALL xs.
+    # strict=True turns any future divergence between the two into an error here rather than a silent
+    # truncation or an IndexError further along.
+    for inner_parameter, value in zip(
+        inner_problem.get_xs_for_group(group), s, strict=True
+    ):
+        inner_parameter.value = value
 
     sigma = group_dict[INNER_NOISE_PARS]
 
